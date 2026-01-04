@@ -1,8 +1,8 @@
-import { Slot } from 'expo-router';
-import { StatusBar } from 'expo-status-bar';
-import { useEffect } from 'react';
-import { initDatabase } from '../lib/database';
-import { ThemeProvider } from '@/constants/ThemeContext';
+import { ThemeProvider } from "@/constants/ThemeContext";
+import { Slot } from "expo-router";
+import { StatusBar } from "expo-status-bar";
+import { useEffect } from "react";
+import { initDatabase } from "../lib/database";
 
 export default function RootLayout() {
   useEffect(() => {

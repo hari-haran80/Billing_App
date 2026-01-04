@@ -226,7 +226,12 @@ export default function BillItemRow({
                     <TouchableOpacity
                       style={[
                         styles.removeWeightButton,
-                        { backgroundColor: (item.weights || []).length > 1 ? colors.danger : colors.warning },
+                        {
+                          backgroundColor:
+                            (item.weights || []).length > 1
+                              ? colors.danger
+                              : colors.warning,
+                        },
                       ]}
                       onPress={() => removeWeightEntry(weightIndex)}
                       disabled={(item.weights || []).length <= 1}

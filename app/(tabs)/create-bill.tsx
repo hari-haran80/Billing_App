@@ -1,5 +1,6 @@
 // app/create-bill.tsx - COMPLETELY UPDATED WITH PRINTING
 import { useTheme } from "@/constants/ThemeContext";
+import { Picker } from "@react-native-picker/picker";
 import * as Print from "expo-print";
 import { useEffect, useState } from "react";
 import {
@@ -16,7 +17,6 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { Picker } from "@react-native-picker/picker";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import BillItemRow from "../../components/bill/BillItemRow";
 import {
@@ -238,7 +238,13 @@ export default function CreateBillScreen() {
         totalAmount,
         items: billItems.map((item) => ({
           itemId: item.itemId,
-          weight: item.unitType === "weight" ? item.weights.reduce((sum, w) => sum + (parseFloat(w.weight) || 0), 0) : 0,
+          weight:
+            item.unitType === "weight"
+              ? item.weights.reduce(
+                  (sum, w) => sum + (parseFloat(w.weight) || 0),
+                  0
+                )
+              : 0,
           quantity: parseInt(item.quantity) || 1,
           weightMode: item.weights[0]?.weightMode || "normal",
           price: parseFloat(item.price),
