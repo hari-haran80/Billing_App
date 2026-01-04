@@ -30,6 +30,13 @@ export default function HistoryScreen() {
 
   useEffect(() => {
     loadBills();
+
+    // Auto refresh every 30 seconds
+    const interval = setInterval(() => {
+      loadBills();
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const loadBills = async () => {

@@ -1,6 +1,5 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { useColorScheme as useDeviceColorScheme } from 'react-native';
-import { Colors, ColorScheme } from '../constants/Colors';
+import React, { createContext, useContext, useState } from "react";
+import { Colors, ColorScheme } from "../constants/Colors";
 
 interface ThemeContextType {
   colorScheme: ColorScheme;
@@ -11,23 +10,21 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
-export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const deviceColorScheme = useDeviceColorScheme() as ColorScheme;
-  const [colorScheme, setColorScheme] = useState<ColorScheme>(deviceColorScheme);
-
-  // Update color scheme when device scheme changes
-  useEffect(() => {
-    setColorScheme(deviceColorScheme);
-  }, [deviceColorScheme]);
+export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({
+  children,
+}) => {
+  const [colorScheme, setColorScheme] = useState<ColorScheme>("light");
 
   const toggleColorScheme = () => {
-    setColorScheme(prev => prev === 'light' ? 'dark' : 'light');
+    // Keep light theme constant
   };
 
-  const colors = Colors[colorScheme];
+  const colors = Colors.light;
 
   return (
-    <ThemeContext.Provider value={{ colorScheme, colors, toggleColorScheme, setColorScheme }}>
+    <ThemeContext.Provider
+      value={{ colorScheme, colors, toggleColorScheme, setColorScheme }}
+    >
       {children}
     </ThemeContext.Provider>
   );
@@ -36,7 +33,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 export const useTheme = () => {
   const context = useContext(ThemeContext);
   if (!context) {
-    throw new Error('useTheme must be used within a ThemeProvider');
+    throw new Error("useTheme must be used within a ThemeProvider");
   }
   return context;
 };

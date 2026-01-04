@@ -37,7 +37,6 @@ interface BillNumberRow {
   bill_number: string;
 }
 
-
 let db: SQLite.SQLiteDatabase | null = null;
 let isInitialized = false;
 
@@ -50,21 +49,26 @@ export const initDatabase = async () => {
   try {
     console.log("[DB] Opening database...");
     db = await SQLite.openDatabaseAsync("scrapbill.db");
+    console.log("[DB] Database opened successfully, db =", !!db);
+
+    if (!db) {
+      throw new Error("Database object is null after opening");
+    }
 
     console.log("[DB] Creating tables...");
+    // Create tables one by one to isolate any issues
     await db.execAsync(`
-      -- Items table
       CREATE TABLE IF NOT EXISTS items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT UNIQUE NOT NULL,
-        category TEXT DEFAULT 'general',
         unit_type TEXT DEFAULT 'weight',
         last_price_per_kg REAL DEFAULT 0,
         last_price_per_unit REAL DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      
-      -- Bills table
+      )
+    `);
+
+    await db.execAsync(`
       CREATE TABLE IF NOT EXISTS bills (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         bill_number TEXT UNIQUE NOT NULL,
@@ -75,9 +79,10 @@ export const initDatabase = async () => {
         is_synced BOOLEAN DEFAULT 0,
         sync_attempts INTEGER DEFAULT 0,
         last_sync_attempt DATETIME
-      );
-      
-      -- Bill items with weight modes
+      )
+    `);
+
+    await db.execAsync(`
       CREATE TABLE IF NOT EXISTS bill_items (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         bill_id INTEGER NOT NULL,
@@ -93,9 +98,10 @@ export const initDatabase = async () => {
         reduced_weight REAL DEFAULT 0,
         FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
         FOREIGN KEY (item_id) REFERENCES items(id)
-      );
-      
-      -- Bottle types
+      )
+    `);
+
+    await db.execAsync(`
       CREATE TABLE IF NOT EXISTS bottle_types (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         name TEXT UNIQUE NOT NULL,
@@ -103,18 +109,20 @@ export const initDatabase = async () => {
         standard_weight REAL DEFAULT 0,
         price_per_unit REAL DEFAULT 0,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      
-      -- Weight reduction settings for L mode
+      )
+    `);
+
+    await db.execAsync(`
       CREATE TABLE IF NOT EXISTS weight_settings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         setting_key TEXT UNIQUE NOT NULL,
         setting_value REAL DEFAULT 0,
         description TEXT,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
-      );
-      
-      -- Sync queue
+      )
+    `);
+
+    await db.execAsync(`
       CREATE TABLE IF NOT EXISTS sync_queue (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         bill_id INTEGER NOT NULL,
@@ -122,14 +130,16 @@ export const initDatabase = async () => {
         data TEXT NOT NULL,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE
-      );
+      )
     `);
+    console.log("[DB] Tables created successfully");
 
     // Insert default weight reduction setting
     await db.runAsync(`
       INSERT OR IGNORE INTO weight_settings (setting_key, setting_value, description) 
       VALUES ('l_mode_reduction_per_kg', 0.1, 'Weight reduced per 1kg in L mode (e.g., 0.1 = 100g reduction)')
     `);
+    console.log("[DB] Default settings inserted");
 
     // Add missing columns if they don't exist
     await addMissingColumns();
@@ -138,6 +148,9 @@ export const initDatabase = async () => {
     console.log("[DB] Database initialized successfully");
   } catch (error) {
     console.error("[DB] Error initializing database:", error);
+    // Reset db on error
+    db = null;
+    isInitialized = false;
   }
 };
 
@@ -224,8 +237,36 @@ const addMissingColumns = async () => {
   }
 };
 
-export const getDb = () => db;
-export const isDbInitialized = () => isInitialized;
+export const resetDatabase = async () => {
+  if (!db) throw new Error("Database not initialized");
+
+  try {
+    console.log("[DB] Resetting database...");
+
+    // Drop all tables
+    await db.execAsync(`
+      DROP TABLE IF EXISTS sync_queue;
+      DROP TABLE IF EXISTS weight_settings;
+      DROP TABLE IF EXISTS bottle_types;
+      DROP TABLE IF EXISTS bill_items;
+      DROP TABLE IF EXISTS bills;
+      DROP TABLE IF EXISTS items;
+    `);
+
+    // Close and reopen database to ensure clean state
+    await db.closeAsync();
+    db = null;
+    isInitialized = false;
+
+    // Reinitialize
+    await initDatabase();
+
+    console.log("[DB] Database reset successfully");
+  } catch (error) {
+    console.error("[DB] Error resetting database:", error);
+    throw error;
+  }
+};
 
 // Weight Management Functions
 export const getWeightReduction = async () => {
@@ -250,12 +291,7 @@ export const getAllItems = async () => {
   if (!db) throw new Error("Database not initialized");
   return await db.getAllAsync(`
     SELECT * FROM items 
-    ORDER BY 
-      CASE category 
-        WHEN 'bottle' THEN 2 
-        ELSE 1 
-      END,
-      name ASC
+    ORDER BY name ASC
   `);
 };
 
@@ -267,7 +303,6 @@ export const getBottleTypes = async () => {
 export const addNewItem = async (
   name: string,
   price: number,
-  category: string = "general",
   unitType: string = "weight"
 ) => {
   if (!db) throw new Error("Database not initialized");
@@ -277,13 +312,13 @@ export const addNewItem = async (
 
   if (unitType === "count") {
     return await db.runAsync(
-      "INSERT INTO items (name, category, unit_type, last_price_per_unit) VALUES (?, ?, ?, ?)",
-      [safeName, category, unitType, price || 0]
+      "INSERT INTO items (name, unit_type, last_price_per_unit) VALUES (?, ?, ?)",
+      [safeName, unitType, price || 0]
     );
   } else {
     return await db.runAsync(
-      "INSERT INTO items (name, category, unit_type, last_price_per_kg) VALUES (?, ?, ?, ?)",
-      [safeName, category, unitType, price || 0]
+      "INSERT INTO items (name, unit_type, last_price_per_kg) VALUES (?, ?, ?)",
+      [safeName, unitType, price || 0]
     );
   }
 };
@@ -525,16 +560,16 @@ export const getAllBills = async () => {
 export const getBillDetails = async (billId: number) => {
   if (!db) throw new Error("Database not initialized");
 
-  const bill = await db.getFirstAsync<BillRow>("SELECT * FROM bills WHERE id = ?", [
-    billId,
-  ]);
+  const bill = await db.getFirstAsync<BillRow>(
+    "SELECT * FROM bills WHERE id = ?",
+    [billId]
+  );
   const items = await db.getAllAsync(
     `
     SELECT 
       bi.*, 
       i.name as item_name,
       i.unit_type,
-      i.category,
       bt.display_name as bottle_display_name
     FROM bill_items bi
     JOIN items i ON bi.item_id = i.id
@@ -571,9 +606,12 @@ export const addBottleType = async (
 
   // Add to items table
   await db.runAsync(
-    "INSERT OR REPLACE INTO items (name, category, unit_type, last_price_per_unit) VALUES (?, ?, ?, ?)",
-    [safeName, "bottle", "count", price || 0]
+    "INSERT OR REPLACE INTO items (name, unit_type, last_price_per_unit) VALUES (?, ?, ?)",
+    [safeName, "count", price || 0]
   );
 
   return safeName;
 };
+
+export const getDb = () => db;
+export const isDbInitialized = () => isInitialized;

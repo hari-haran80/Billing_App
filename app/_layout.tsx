@@ -6,7 +6,14 @@ import { ThemeProvider } from '@/constants/ThemeContext';
 
 export default function RootLayout() {
   useEffect(() => {
-    initDatabase();
+    const initialize = async () => {
+      try {
+        await initDatabase();
+      } catch (error) {
+        console.error("Failed to initialize database:", error);
+      }
+    };
+    initialize();
   }, []);
 
   return (

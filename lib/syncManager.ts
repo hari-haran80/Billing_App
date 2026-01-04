@@ -1,6 +1,6 @@
 // lib/syncManager.ts - Complete with bottle support
-import NetInfo from '@react-native-community/netinfo';
-import { getDb } from './database';
+import NetInfo from "@react-native-community/netinfo";
+import { getDb } from "./database";
 
 export interface SyncResult {
   success: boolean;
@@ -12,7 +12,7 @@ export interface SyncResult {
 }
 
 export class SyncManager {
-  private static apiBaseUrl = 'https://your-django-api.com/api'; // Replace with your backend URL
+  private static apiBaseUrl = "https://your-django-api.com/api"; // Replace with your backend URL
 
   /**
    * Check if device is online
@@ -35,7 +35,6 @@ export class SyncManager {
                 json_group_array(
                   json_object(
                     'itemName', i.name,
-                    'itemCategory', i.category,
                     'unitType', i.unit_type,
                     'originalWeight', bi.original_weight,
                     'lWeight', bi.l_weight,
@@ -63,10 +62,10 @@ export class SyncManager {
         bill.items = JSON.parse(bill.items);
         bills.push(bill);
       }
-      
+
       return bills;
     } catch (error) {
-      console.error('Error getting unsynced bills:', error);
+      console.error("Error getting unsynced bills:", error);
       return [];
     }
   }
@@ -76,7 +75,7 @@ export class SyncManager {
    */
   static async syncBills(): Promise<SyncResult> {
     const isOnline = await this.isOnline();
-    
+
     if (!isOnline) {
       return {
         success: false,
@@ -84,7 +83,7 @@ export class SyncManager {
         failedBills: 0,
         syncedItems: 0,
         failedItems: 0,
-        message: 'No internet connection. Please check your network.',
+        message: "No internet connection. Please check your network.",
       };
     }
 
@@ -103,7 +102,6 @@ export class SyncManager {
           date: bill.date,
           items: bill.items.map((item: any) => ({
             item_name: item.itemName,
-            item_category: item.itemCategory,
             unit_type: item.unitType,
             original_weight: item.originalWeight,
             l_weight: item.lWeight,
@@ -113,14 +111,14 @@ export class SyncManager {
             weight_mode: item.weightMode,
             price_per_kg: item.pricePerKg,
             price_per_unit: item.pricePerUnit,
-            amount: item.amount
-          }))
+            amount: item.amount,
+          })),
         };
 
         const response = await fetch(`${this.apiBaseUrl}/bills/`, {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Content-Type': 'application/json',
+            "Content-Type": "application/json",
           },
           body: JSON.stringify(apiData),
         });
@@ -129,32 +127,31 @@ export class SyncManager {
           // Mark bill as synced
           const db = getDb();
           if (!db) continue;
-          
+
           await db.runAsync(
-            'UPDATE bills SET is_synced = 1, sync_attempts = 0 WHERE id = ?',
+            "UPDATE bills SET is_synced = 1, sync_attempts = 0 WHERE id = ?",
             [bill.id]
           );
-          
+
           // Remove from sync queue
-          await db.runAsync(
-            'DELETE FROM sync_queue WHERE bill_id = ?',
-            [bill.id]
-          );
-          
+          await db.runAsync("DELETE FROM sync_queue WHERE bill_id = ?", [
+            bill.id,
+          ]);
+
           syncedCount++;
         } else {
           // Increment sync attempts
           const db = getDb();
           if (!db) continue;
-          
+
           await db.runAsync(
-            'UPDATE bills SET sync_attempts = sync_attempts + 1, last_sync_attempt = CURRENT_TIMESTAMP WHERE id = ?',
+            "UPDATE bills SET sync_attempts = sync_attempts + 1, last_sync_attempt = CURRENT_TIMESTAMP WHERE id = ?",
             [bill.id]
           );
           failedCount++;
         }
       } catch (error) {
-        console.error('Error syncing bill:', error);
+        console.error("Error syncing bill:", error);
         failedCount++;
       }
     }
@@ -177,9 +174,9 @@ export class SyncManager {
       const db = getDb();
       if (!db) return { synced: 0, failed: 0 };
 
-      const items = await db.getAllAsync('SELECT * FROM items');
-      const bottleTypes = await db.getAllAsync('SELECT * FROM bottle_types');
-      
+      const items = await db.getAllAsync("SELECT * FROM items");
+      const bottleTypes = await db.getAllAsync("SELECT * FROM bottle_types");
+
       let synced = 0;
       let failed = 0;
 
@@ -187,17 +184,16 @@ export class SyncManager {
       for (const item of items) {
         try {
           const response = await fetch(`${this.apiBaseUrl}/items/`, {
-            method: 'POST',
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({
               name: item.name,
-              category: item.category,
               unit_type: item.unit_type,
               last_price_per_kg: item.last_price_per_kg,
               last_price_per_unit: item.last_price_per_unit,
-              created_at: item.created_at
+              created_at: item.created_at,
             }),
           });
 
@@ -207,7 +203,7 @@ export class SyncManager {
             failed++;
           }
         } catch (error) {
-          console.error('Error syncing item:', error);
+          console.error("Error syncing item:", error);
           failed++;
         }
       }
@@ -216,16 +212,16 @@ export class SyncManager {
       for (const bottle of bottleTypes) {
         try {
           const response = await fetch(`${this.apiBaseUrl}/bottle-types/`, {
-            method: 'POST',
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
+              "Content-Type": "application/json",
             },
             body: JSON.stringify({
               name: bottle.name,
               display_name: bottle.display_name,
               standard_weight: bottle.standard_weight,
               price_per_unit: bottle.price_per_unit,
-              created_at: bottle.created_at
+              created_at: bottle.created_at,
             }),
           });
 
@@ -235,14 +231,14 @@ export class SyncManager {
             failed++;
           }
         } catch (error) {
-          console.error('Error syncing bottle type:', error);
+          console.error("Error syncing bottle type:", error);
           failed++;
         }
       }
 
       return { synced, failed };
     } catch (error) {
-      console.error('Error syncing items:', error);
+      console.error("Error syncing items:", error);
       return { synced: 0, failed: 0 };
     }
   }
@@ -252,7 +248,7 @@ export class SyncManager {
    */
   static async syncAll(): Promise<SyncResult> {
     const isOnline = await this.isOnline();
-    
+
     if (!isOnline) {
       return {
         success: false,
@@ -260,14 +256,14 @@ export class SyncManager {
         failedBills: 0,
         syncedItems: 0,
         failedItems: 0,
-        message: 'No internet connection. Please check your network.',
+        message: "No internet connection. Please check your network.",
       };
     }
 
     try {
       // Sync items first
       const itemsResult = await this.syncItems();
-      
+
       // Sync bills
       const billsResult = await this.syncBills();
 
@@ -280,14 +276,14 @@ export class SyncManager {
         message: `Synced ${billsResult.syncedBills} bill(s) and ${itemsResult.synced} item(s). ${billsResult.failedBills + itemsResult.failed} failed.`,
       };
     } catch (error) {
-      console.error('Error during sync:', error);
+      console.error("Error during sync:", error);
       return {
         success: false,
         syncedBills: 0,
         failedBills: 0,
         syncedItems: 0,
         failedItems: 0,
-        message: 'Sync failed. Please try again.',
+        message: "Sync failed. Please try again.",
       };
     }
   }
@@ -300,12 +296,12 @@ export class SyncManager {
     if (!db) return { unsyncedBills: 0, unsyncedItems: 0 };
 
     const [billsResult] = await db.executeSql(
-      'SELECT COUNT(*) as count FROM bills WHERE is_synced = 0',
+      "SELECT COUNT(*) as count FROM bills WHERE is_synced = 0",
       []
     );
 
     const [queueResult] = await db.executeSql(
-      'SELECT COUNT(*) as count FROM sync_queue',
+      "SELECT COUNT(*) as count FROM sync_queue",
       []
     );
 
@@ -321,10 +317,10 @@ export class SyncManager {
   static async retryFailedSyncs(): Promise<void> {
     const db = getDb();
     if (!db) return;
-    
+
     // Get bills with failed sync attempts (less than 3 attempts)
     const [results] = await db.executeSql(
-      'SELECT id FROM bills WHERE is_synced = 0 AND sync_attempts < 3',
+      "SELECT id FROM bills WHERE is_synced = 0 AND sync_attempts < 3",
       []
     );
 

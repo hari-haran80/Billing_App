@@ -1,6 +1,6 @@
 export interface BillItem {
   itemName: string;
-  unitType?: 'weight' | 'count';
+  unitType: "weight" | "count";
   quantity?: number;
   pricePerUnit?: number;
   pricePerKg?: number;

@@ -16,10 +16,10 @@ import {
   View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Picker } from "@react-native-picker/picker";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import BillItemRow from "../../components/bill/BillItemRow";
 import {
-  addBottleType,
   addNewItem,
   getAllItems,
   getNextBillNumber,
@@ -33,11 +33,9 @@ interface BillItem {
   id: string;
   itemId: number | null;
   itemName: string;
-  itemCategory: string;
   unitType: "weight" | "count";
-  weight: string;
+  weights: Array<{ weight: string; weightMode: "normal" | "L" }>;
   quantity: string;
-  weightMode: "normal" | "L";
   price: string;
   amount: number;
 }
@@ -49,11 +47,9 @@ export default function CreateBillScreen() {
       id: Date.now().toString(),
       itemId: null,
       itemName: "",
-      itemCategory: "",
       unitType: "weight",
-      weight: "",
+      weights: [{ weight: "", weightMode: "normal" }],
       quantity: "1",
-      weightMode: "normal",
       price: "",
       amount: 0,
     },
@@ -62,16 +58,11 @@ export default function CreateBillScreen() {
   const [totalAmount, setTotalAmount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showNewItemModal, setShowNewItemModal] = useState(false);
-  const [showNewBottleModal, setShowNewBottleModal] = useState(false);
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
-  const [newItemCategory, setNewItemCategory] = useState("general");
   const [newItemUnitType, setNewItemUnitType] = useState<"weight" | "count">(
     "weight"
   );
-  const [newBottleName, setNewBottleName] = useState("");
-  const [newBottleDisplayName, setNewBottleDisplayName] = useState("");
-  const [newBottlePrice, setNewBottlePrice] = useState("");
   const [saving, setSaving] = useState(false);
   const [printing, setPrinting] = useState(false);
   const [selectedWeightMode, setSelectedWeightMode] = useState<"normal" | "L">(
@@ -122,11 +113,9 @@ export default function CreateBillScreen() {
         id: Date.now().toString(),
         itemId: null,
         itemName: "",
-        itemCategory: "",
         unitType: "weight",
-        weight: "",
+        weights: [{ weight: "", weightMode: selectedWeightMode }],
         quantity: "1",
-        weightMode: selectedWeightMode,
         price: "",
         amount: 0,
       },
@@ -142,13 +131,15 @@ export default function CreateBillScreen() {
         const price = parseFloat(newItem.price) || 0;
 
         if (newItem.unitType === "count") {
-          // Bottles: amount = quantity * price
+          // Count items: amount = quantity * price
           const quantity = parseInt(newItem.quantity) || 0;
           newItem.amount = quantity * price;
         } else {
-          // Weight items: amount = weight * price
-          const weight = parseFloat(newItem.weight) || 0;
-          newItem.amount = weight * price;
+          // Weight items: amount = total weight * price
+          const totalWeight = newItem.weights.reduce((sum, weightEntry) => {
+            return sum + (parseFloat(weightEntry.weight) || 0);
+          }, 0);
+          newItem.amount = totalWeight * price;
         }
 
         return newItem;
@@ -162,7 +153,6 @@ export default function CreateBillScreen() {
       const updates: Partial<BillItem> = {
         itemId,
         itemName: selectedItem.name,
-        itemCategory: selectedItem.category,
         unitType: selectedItem.unit_type,
       };
 
@@ -172,7 +162,8 @@ export default function CreateBillScreen() {
         updates.quantity = "1";
       } else {
         updates.price = selectedItem.last_price_per_kg?.toString() || "0";
-        updates.weight = "";
+        // Initialize with one empty weight entry
+        updates.weights = [{ weight: "", weightMode: selectedWeightMode }];
       }
 
       updateBillItem(id, updates);
@@ -189,13 +180,11 @@ export default function CreateBillScreen() {
       await addNewItem(
         newItemName.trim(),
         parseFloat(newItemPrice) || 0,
-        newItemCategory,
         newItemUnitType
       );
 
       setNewItemName("");
       setNewItemPrice("");
-      setNewItemCategory("general");
       setNewItemUnitType("weight");
       setShowNewItemModal(false);
 
@@ -209,34 +198,6 @@ export default function CreateBillScreen() {
     }
   };
 
-  const handleAddNewBottle = async () => {
-    if (!newBottleName.trim() || !newBottleDisplayName.trim()) {
-      Alert.alert("Error", "Please enter bottle code and display name");
-      return;
-    }
-
-    try {
-      await addBottleType(
-        newBottleName.trim(),
-        newBottleDisplayName.trim(),
-        parseFloat(newBottlePrice) || 0
-      );
-
-      setNewBottleName("");
-      setNewBottleDisplayName("");
-      setNewBottlePrice("");
-      setShowNewBottleModal(false);
-
-      // Reload items
-      await loadItems();
-
-      Alert.alert("Success", "New bottle type added successfully!");
-    } catch (error) {
-      console.error("Error adding new bottle:", error);
-      Alert.alert("Error", error.message || "Failed to add new bottle");
-    }
-  };
-
   const handleSaveBill = async (printAfterSave: boolean = false) => {
     // Validate all items
     for (const item of billItems) {
@@ -245,16 +206,23 @@ export default function CreateBillScreen() {
         return;
       }
 
-      if (item.unitType === "weight" && !item.weight) {
-        Alert.alert("Error", "Please enter weight for weight-based items");
-        return;
+      if (item.unitType === "weight") {
+        // Check if at least one weight entry has a value
+        const hasValidWeight = item.weights.some(
+          (weightEntry) =>
+            weightEntry.weight && parseFloat(weightEntry.weight) > 0
+        );
+        if (!hasValidWeight) {
+          Alert.alert("Error", "Please enter weight for weight-based items");
+          return;
+        }
       }
 
       if (
         item.unitType === "count" &&
         (!item.quantity || parseInt(item.quantity) <= 0)
       ) {
-        Alert.alert("Error", "Please enter valid quantity for bottle items");
+        Alert.alert("Error", "Please enter valid quantity for count items");
         return;
       }
     }
@@ -270,9 +238,9 @@ export default function CreateBillScreen() {
         totalAmount,
         items: billItems.map((item) => ({
           itemId: item.itemId,
-          weight: item.unitType === "weight" ? parseFloat(item.weight) || 0 : 0,
+          weight: item.unitType === "weight" ? item.weights.reduce((sum, w) => sum + (parseFloat(w.weight) || 0), 0) : 0,
           quantity: parseInt(item.quantity) || 1,
-          weightMode: item.weightMode,
+          weightMode: item.weights[0]?.weightMode || "normal",
           price: parseFloat(item.price),
           amount: item.amount,
         })),
@@ -284,23 +252,9 @@ export default function CreateBillScreen() {
       if (printAfterSave) {
         await handlePrintBill(billId, billNumber);
       } else {
-        Alert.alert("Success", "Bill saved successfully!", [
-          {
-            text: "Create New Bill",
-            onPress: () => {
-              resetForm();
-              setSaving(false);
-            },
-          },
-          {
-            text: "Print Bill",
-            onPress: () => handlePrintBill(billId, billNumber),
-          },
-          {
-            text: "OK",
-            onPress: () => setSaving(false),
-          },
-        ]);
+        Alert.alert("Success", "Bill saved successfully!");
+        resetForm();
+        setSaving(false);
       }
     } catch (error) {
       console.error("Error saving bill:", error);
@@ -331,17 +285,27 @@ export default function CreateBillScreen() {
               amount: item.amount,
             };
           } else {
+            // Calculate total weight from all weight entries
+            const totalWeight = item.weights.reduce((sum, weightEntry) => {
+              return sum + (parseFloat(weightEntry.weight) || 0);
+            }, 0);
+
+            // Calculate L weight (assuming L mode applies to total)
+            const lWeight = item.weights.some((w) => w.weightMode === "L")
+              ? totalWeight
+              : 0;
+
             return {
               itemName: itemDetails?.name || item.itemName,
               unitType: "weight",
-              originalWeight: parseFloat(item.weight) || 0,
-              lWeight:
-                item.weightMode === "L" ? parseFloat(item.weight) || 0 : 0,
+              originalWeight: totalWeight,
+              lWeight: lWeight,
               reducedWeight: 0,
-              finalWeight: parseFloat(item.weight) || 0,
-              weightMode: item.weightMode,
+              finalWeight: totalWeight,
+              weightMode: item.weights[0]?.weightMode || "normal",
               pricePerKg: parseFloat(item.price),
               amount: item.amount,
+              weightEntries: item.weights, // Include individual weight entries for detailed display
             };
           }
         }),
@@ -357,6 +321,7 @@ export default function CreateBillScreen() {
       });
 
       Alert.alert("Success", "Bill printed successfully!");
+      resetForm();
     } catch (error) {
       console.error("Error printing bill:", error);
       Alert.alert(
@@ -375,11 +340,9 @@ export default function CreateBillScreen() {
         id: Date.now().toString(),
         itemId: null,
         itemName: "",
-        itemCategory: "",
         unitType: "weight",
-        weight: "",
+        weights: [{ weight: "", weightMode: "normal" }],
         quantity: "1",
-        weightMode: "normal",
         price: "",
         amount: 0,
       },
@@ -523,14 +486,6 @@ export default function CreateBillScreen() {
                 <Icon name="add-circle" size={18} color="white" />
                 <Text style={styles.buttonText}>New Item</Text>
               </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.button, { backgroundColor: "#17a2b8" }]}
-                onPress={() => setShowNewBottleModal(true)}
-              >
-                <Icon name="local-drink" size={18} color="white" />
-                <Text style={styles.buttonText}>New Bottle</Text>
-              </TouchableOpacity>
             </View>
 
             {billItems.map((item, index) => (
@@ -664,74 +619,24 @@ export default function CreateBillScreen() {
                 <Text style={[styles.modalLabel, { color: colors.text }]}>
                   Item Type
                 </Text>
-                <View style={styles.itemTypeContainer}>
-                  <TouchableOpacity
-                    style={[
-                      styles.itemTypeButton,
-                      newItemUnitType === "weight" && {
-                        backgroundColor: colors.primary,
-                      },
-                    ]}
-                    onPress={() => setNewItemUnitType("weight")}
+                <View style={styles.pickerContainer}>
+                  <Picker
+                    selectedValue={newItemUnitType}
+                    onValueChange={(value) => setNewItemUnitType(value)}
+                    style={[styles.picker, { color: colors.text }]}
+                    dropdownIconColor={colors.textSecondary}
                   >
-                    <Text
-                      style={[
-                        styles.itemTypeText,
-                        newItemUnitType === "weight" &&
-                          styles.itemTypeTextActive,
-                      ]}
-                    >
-                      Weight Item
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    style={[
-                      styles.itemTypeButton,
-                      newItemUnitType === "count" && {
-                        backgroundColor: colors.primary,
-                      },
-                    ]}
-                    onPress={() => setNewItemUnitType("count")}
-                  >
-                    <Text
-                      style={[
-                        styles.itemTypeText,
-                        newItemUnitType === "count" &&
-                          styles.itemTypeTextActive,
-                      ]}
-                    >
-                      Bottle
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              <View style={styles.modalInputContainer}>
-                <Text style={[styles.modalLabel, { color: colors.text }]}>
-                  Category
-                </Text>
-                <View style={styles.categoryContainer}>
-                  {["metal", "plastic", "paper", "other"].map((category) => (
-                    <TouchableOpacity
-                      key={category}
-                      style={[
-                        styles.categoryButton,
-                        newItemCategory === category && {
-                          backgroundColor: colors.primary,
-                        },
-                      ]}
-                      onPress={() => setNewItemCategory(category)}
-                    >
-                      <Text
-                        style={[
-                          styles.categoryButtonText,
-                          newItemCategory === category && { color: "white" },
-                        ]}
-                      >
-                        {category.charAt(0).toUpperCase() + category.slice(1)}
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                    <Picker.Item
+                      label="Weight (kg)"
+                      value="weight"
+                      color={colors.text}
+                    />
+                    <Picker.Item
+                      label="Count (pieces)"
+                      value="count"
+                      color={colors.text}
+                    />
+                  </Picker>
                 </View>
               </View>
 
@@ -785,127 +690,6 @@ export default function CreateBillScreen() {
                 onPress={handleAddNewItem}
               >
                 <Text style={styles.addButtonText}>Add Item</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
-      {/* Add New Bottle Modal */}
-      <Modal
-        visible={showNewBottleModal}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setShowNewBottleModal(false)}
-      >
-        <View style={styles.modalOverlay}>
-          <View
-            style={[
-              styles.modalContent,
-              { backgroundColor: colors.cardBackground },
-            ]}
-          >
-            <View style={[styles.modalHeader, { backgroundColor: "#17a2b8" }]}>
-              <Text style={styles.modalTitle}>Add New Bottle Type</Text>
-            </View>
-
-            <View style={styles.modalBody}>
-              <View style={styles.modalInputContainer}>
-                <Text style={[styles.modalLabel, { color: colors.text }]}>
-                  Bottle Code *
-                </Text>
-                <TextInput
-                  style={[
-                    styles.modalInput,
-                    {
-                      backgroundColor: colors.background,
-                      borderColor: colors.border,
-                      color: colors.text,
-                    },
-                  ]}
-                  placeholder="e.g., beer_bottle"
-                  placeholderTextColor={colors.textSecondary}
-                  value={newBottleName}
-                  onChangeText={setNewBottleName}
-                  autoCapitalize="none"
-                />
-                <Text
-                  style={[styles.helperText, { color: colors.textSecondary }]}
-                >
-                  Unique code without spaces (used internally)
-                </Text>
-              </View>
-
-              <View style={styles.modalInputContainer}>
-                <Text style={[styles.modalLabel, { color: colors.text }]}>
-                  Display Name *
-                </Text>
-                <TextInput
-                  style={[
-                    styles.modalInput,
-                    {
-                      backgroundColor: colors.background,
-                      borderColor: colors.border,
-                      color: colors.text,
-                    },
-                  ]}
-                  placeholder="e.g., Beer Bottle"
-                  placeholderTextColor={colors.textSecondary}
-                  value={newBottleDisplayName}
-                  onChangeText={setNewBottleDisplayName}
-                />
-                <Text
-                  style={[styles.helperText, { color: colors.textSecondary }]}
-                >
-                  Name shown to customers
-                </Text>
-              </View>
-
-              <View style={styles.modalInputContainer}>
-                <Text style={[styles.modalLabel, { color: colors.text }]}>
-                  Price per unit (₹) *
-                </Text>
-                <TextInput
-                  style={[
-                    styles.modalInput,
-                    {
-                      backgroundColor: colors.background,
-                      borderColor: colors.border,
-                      color: colors.text,
-                    },
-                  ]}
-                  placeholder="0.00"
-                  placeholderTextColor={colors.textSecondary}
-                  value={newBottlePrice}
-                  onChangeText={setNewBottlePrice}
-                  keyboardType="decimal-pad"
-                />
-              </View>
-            </View>
-
-            <View
-              style={[styles.modalFooter, { borderTopColor: colors.border }]}
-            >
-              <TouchableOpacity
-                style={[
-                  styles.modalButton,
-                  {
-                    backgroundColor: colors.background,
-                    borderColor: colors.border,
-                  },
-                ]}
-                onPress={() => setShowNewBottleModal(false)}
-              >
-                <Text style={[styles.cancelButtonText, { color: colors.text }]}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[styles.modalButton, { backgroundColor: "#17a2b8" }]}
-                onPress={handleAddNewBottle}
-              >
-                <Text style={styles.addButtonText}>Add Bottle</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -1174,23 +958,6 @@ const createStyles = (colors: any) =>
     },
     itemTypeTextActive: {
       color: "white",
-    },
-    categoryContainer: {
-      flexDirection: "row",
-      flexWrap: "wrap",
-      gap: 8,
-    },
-    categoryButton: {
-      paddingVertical: 8,
-      paddingHorizontal: 16,
-      borderRadius: 6,
-      backgroundColor: colors.background,
-      borderWidth: 1,
-      borderColor: colors.border,
-    },
-    categoryButtonText: {
-      fontSize: 14,
-      color: colors.text,
     },
     modalFooter: {
       flexDirection: "row",
