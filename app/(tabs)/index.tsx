@@ -251,13 +251,7 @@ const router = useRouter();
   </View>
 </TouchableOpacity>
                 </View>
-              ))}
-            </View>
-          ) : (
-            <View style={styles.emptyState}>
-              <Icon name="receipt" size={48} color="#ddd" />
-              <Text style={styles.emptyStateText}>No bills yet</Text>
-              <Text style={styles.emptyStateSubtext}>Create your first bill</Text>
+tyle={styles.emptyStateSubtext}>Create your first bill</Text>
             </View>
           )}
         </View>

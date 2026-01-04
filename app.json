@@ -49,6 +49,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1aa4a596-5fa4-4945-9556-67b399e823c1"
+      }
+    },
+    "owner": "hari_haran_dev"
   }
 }
