@@ -242,7 +242,7 @@ ${weightItems
 <tr>
   <td class="col-item-w item-name">${item.itemName}</td>
   <td class="col-uprice">₹${item.pricePerKg?.toFixed(2) || "0.00"}</td>
-  <td class="col-weight">${item.finalWeight?.toFixed(2) || "0.00"}</td>
+  <td class="col-weight">${item.lWeight?.toFixed(2) || "0.00"}</td>
   <td class="col-total-w">₹${item.amount.toFixed(2)}</td>
 </tr>
 `

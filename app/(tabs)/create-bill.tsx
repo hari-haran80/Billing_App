@@ -296,18 +296,28 @@ export default function CreateBillScreen() {
               return sum + (parseFloat(weightEntry.weight) || 0);
             }, 0);
 
-            // Calculate L weight (assuming L mode applies to total)
-            const lWeight = item.weights.some((w) => w.weightMode === "L")
-              ? totalWeight
-              : 0;
+            const isLMode = item.weights.some((w) => w.weightMode === "L");
+            let originalWeight, lWeight, finalWeight, reducedWeight;
+
+            if (isLMode) {
+              lWeight = totalWeight;
+              originalWeight = lWeight / (1 - weightReduction);
+              finalWeight = originalWeight;
+              reducedWeight = originalWeight - lWeight;
+            } else {
+              originalWeight = totalWeight;
+              lWeight = 0;
+              finalWeight = totalWeight;
+              reducedWeight = 0;
+            }
 
             return {
               itemName: itemDetails?.name || item.itemName,
               unitType: "weight",
-              originalWeight: totalWeight,
+              originalWeight: originalWeight,
               lWeight: lWeight,
-              reducedWeight: 0,
-              finalWeight: totalWeight,
+              reducedWeight: reducedWeight,
+              finalWeight: finalWeight,
               weightMode: item.weights[0]?.weightMode || "normal",
               pricePerKg: parseFloat(item.price),
               amount: item.amount,

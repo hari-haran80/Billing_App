@@ -5,13 +5,13 @@ import { router, useLocalSearchParams } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    ScrollView,
-    StyleSheet,
-    Text,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -55,7 +55,7 @@ export default function BillDetailsScreen() {
           quantity: item.quantity || 1,
           pricePerUnit: item.price_per_unit || 0,
           pricePerKg: item.price_per_kg || 0,
-          finalWeight: item.final_weight || 0,
+          lWeight: item.weight_mode === "L" ? item.l_weight : item.final_weight,
           amount: item.amount || 0,
         })),
       };
@@ -89,7 +89,7 @@ export default function BillDetailsScreen() {
           quantity: item.quantity || 1,
           pricePerUnit: item.price_per_unit || 0,
           pricePerKg: item.price_per_kg || 0,
-          finalWeight: item.final_weight || 0,
+          lWeight: item.weight_mode === "L" ? item.l_weight : item.final_weight,
           amount: item.amount || 0,
         })),
       };
@@ -247,8 +247,12 @@ export default function BillDetailsScreen() {
                 ) : (
                   <View style={styles.itemDetails}>
                     <Text style={styles.itemDetail}>
-                      Weight: {item.final_weight?.toFixed(3)} kg × ₹
-                      {item.price_per_kg?.toFixed(2)}/kg
+                      Weight:{" "}
+                      {(Number(item.l_weight) > 0
+                        ? Number(item.l_weight)
+                        : Number(item.final_weight)
+                      ).toFixed(3)}{" "}
+                      kg × ₹{Number(item.price_per_kg).toFixed(2)}/kg
                     </Text>
                   </View>
                 )}

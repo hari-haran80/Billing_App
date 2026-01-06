@@ -4,7 +4,7 @@ export interface BillItem {
   quantity?: number;
   pricePerUnit?: number;
   pricePerKg?: number;
-  finalWeight?: number;
+  lWeight?: number;
   amount: number;
 }
 

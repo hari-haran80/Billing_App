@@ -107,7 +107,7 @@ export default function HistoryScreen() {
           quantity: item.quantity || 1,
           pricePerUnit: item.price_per_unit || 0,
           pricePerKg: item.price_per_kg || 0,
-          finalWeight: item.final_weight || 0,
+          lWeight: item.weight_mode === "L" ? item.l_weight : item.final_weight,
           amount: item.amount || 0,
         })),
       };
@@ -142,7 +142,7 @@ export default function HistoryScreen() {
           quantity: item.quantity || 1,
           pricePerUnit: item.price_per_unit || 0,
           pricePerKg: item.price_per_kg || 0,
-          finalWeight: item.final_weight || 0,
+          lWeight: item.weight_mode === "L" ? item.l_weight : item.final_weight,
           amount: item.amount || 0,
         })),
       };
@@ -174,7 +174,7 @@ export default function HistoryScreen() {
           quantity: item.quantity || 1,
           pricePerUnit: item.price_per_unit || 0,
           pricePerKg: item.price_per_kg || 0,
-          finalWeight: item.final_weight || 0,
+          lWeight: item.weight_mode === "L" ? item.l_weight : item.final_weight,
           amount: item.amount || 0,
         })),
       };

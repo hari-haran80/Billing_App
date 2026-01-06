@@ -232,6 +232,33 @@ const addMissingColumns = async () => {
         "ALTER TABLE bill_items ADD COLUMN reduced_weight REAL DEFAULT 0"
       );
     }
+
+    // Check if sync_attempts column exists in bills table
+    const billsInfo = await db.getAllAsync<TableInfoRow>(
+      "PRAGMA table_info(bills)"
+    );
+    const hasSyncAttempts = billsInfo.some(
+      (col) => col.name === "sync_attempts"
+    );
+
+    if (!hasSyncAttempts) {
+      console.log("[DB] Adding sync_attempts column to bills table");
+      await db.runAsync(
+        "ALTER TABLE bills ADD COLUMN sync_attempts INTEGER DEFAULT 0"
+      );
+    }
+
+    // Check if last_sync_attempt column exists in bills table
+    const hasLastSyncAttempt = billsInfo.some(
+      (col) => col.name === "last_sync_attempt"
+    );
+
+    if (!hasLastSyncAttempt) {
+      console.log("[DB] Adding last_sync_attempt column to bills table");
+      await db.runAsync(
+        "ALTER TABLE bills ADD COLUMN last_sync_attempt DATETIME"
+      );
+    }
   } catch (error) {
     console.error("[DB] Error adding missing columns:", error);
   }
@@ -444,14 +471,17 @@ export const getNextBillNumber = async (): Promise<string> => {
 export const saveBill = async (billData: any) => {
   if (!db) throw new Error("Database not initialized");
 
-  const { billNumber, customerName, customerPhone, totalAmount, items } =
-    billData;
-  const weightReduction = await getWeightReduction();
+  const { billNumber, customerName, customerPhone, items } = billData;
+  const weightReduction = await getWeightReduction(); // e.g., 0.1 for 10%
 
-  // Save bill header
+  // Compute total amount for the bill
+  let totalAmount = 0;
+
+  // Save bill header first (amount 0 for now, will update after items)
   const result = await db.runAsync(
-    "INSERT INTO bills (bill_number, customer_name, customer_phone, total_amount) VALUES (?, ?, ?, ?)",
-    [billNumber, customerName || "Walk-in Customer", customerPhone, totalAmount]
+    `INSERT INTO bills (bill_number, customer_name, customer_phone, total_amount) 
+     VALUES (?, ?, ?, ?)`,
+    [billNumber, customerName || "Walk-in Customer", customerPhone || "", 0]
   );
 
   const billId = result.lastInsertRowId;
@@ -460,72 +490,93 @@ export const saveBill = async (billData: any) => {
   for (const item of items) {
     const itemDetails = await getItemById(item.itemId);
 
+    let originalWeight = Number(item.weight) || 0;
+    let quantity = item.quantity || 1;
+    let lWeight = 0;
+    let finalWeight = originalWeight;
+    let reducedWeight = 0;
+    let amount = 0;
+
     if (itemDetails?.unit_type === "count") {
-      // Bottles (count-based)
+      // Count-based items (bottles)
+      amount = Number((quantity * item.price).toFixed(2));
+      totalAmount += amount;
+
       await db.runAsync(
         `INSERT INTO bill_items 
-         (bill_id, item_id, original_weight, quantity, final_weight, price_per_kg, price_per_unit, amount, reduced_weight)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (bill_id, item_id, original_weight, l_weight, final_weight, weight_mode, price_per_kg, price_per_unit, amount, reduced_weight, quantity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           billId,
           item.itemId,
           0,
-          item.quantity || 1,
           0,
+          0,
+          "normal",
           0,
           item.price,
-          item.amount,
+          amount,
           0,
+          quantity,
         ]
       );
 
-      // Update bottle price
+      // Update item last price
       await db.runAsync(
         "UPDATE items SET last_price_per_unit = ? WHERE id = ?",
         [item.price, item.itemId]
       );
     } else {
-      // Weight-based items with L mode calculation
-      const enteredWeight = parseFloat(item.weight) || 0;
-      let originalWeight = enteredWeight;
-      let lWeight = 0;
-      let finalWeight = enteredWeight;
-
+      // Weight-based items
       if (item.weightMode === "L") {
-        // L mode: Calculate original weight from L weight
-        originalWeight = enteredWeight / (1 - weightReduction);
-        lWeight = enteredWeight;
-        finalWeight = lWeight;
+        // L mode: entered weight is L weight, calculate gross weight
+        lWeight = originalWeight;
+        originalWeight = lWeight / (1 - weightReduction);
+        finalWeight = originalWeight;
+        reducedWeight = originalWeight - lWeight;
+        amount = Number((lWeight * item.price).toFixed(2));
       } else {
-        originalWeight = enteredWeight;
+        // Normal mode
         lWeight = 0;
         finalWeight = originalWeight;
+        reducedWeight = 0;
+        amount = Number((finalWeight * item.price).toFixed(2));
       }
+
+      totalAmount += amount;
 
       await db.runAsync(
         `INSERT INTO bill_items 
-         (bill_id, item_id, original_weight, l_weight, final_weight, weight_mode, price_per_kg, amount, reduced_weight)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        (bill_id, item_id, original_weight, l_weight, final_weight, weight_mode, price_per_kg, price_per_unit, amount, reduced_weight, quantity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           billId,
           item.itemId,
-          originalWeight,
-          lWeight,
-          finalWeight,
-          item.weightMode,
+          Number(originalWeight.toFixed(3)),
+          Number(lWeight.toFixed(3)),
+          Number(finalWeight.toFixed(3)),
+          item.weightMode || "normal",
           item.price,
-          item.amount,
-          0, // reduced_weight for backward compatibility
+          0,
+          amount,
+          Number(reducedWeight.toFixed(3)),
+          1,
         ]
       );
 
-      // Update item price
+      // Update last price per kg
       await db.runAsync("UPDATE items SET last_price_per_kg = ? WHERE id = ?", [
         item.price,
         item.itemId,
       ]);
     }
   }
+
+  // Update total amount in bill header
+  await db.runAsync("UPDATE bills SET total_amount = ? WHERE id = ?", [
+    Number(totalAmount.toFixed(2)),
+    billId,
+  ]);
 
   return billId;
 };
@@ -545,7 +596,7 @@ export const getAllBills = async () => {
       GROUP_CONCAT(
         CASE 
           WHEN i.unit_type = 'count' THEN i.name || ' (' || bi.quantity || ' nos)'
-          ELSE i.name || ' (' || bi.final_weight || ' kg)'
+          ELSE i.name || ' (' || CASE WHEN bi.weight_mode = 'L' THEN bi.l_weight ELSE bi.final_weight END || ' kg)'
         END
       ) as items_list,
       COUNT(bi.id) as item_count
@@ -579,7 +630,19 @@ export const getBillDetails = async (billId: number) => {
     [billId]
   );
 
-  return { ...bill, items };
+  // Adjust items for L mode display
+  const adjustedItems = items.map((item) => {
+    if (item.weight_mode === "L") {
+      return {
+        ...item,
+        final_weight: item.original_weight,
+        amount: Number((item.l_weight * item.price_per_kg).toFixed(2)),
+      };
+    }
+    return item;
+  });
+
+  return { ...bill, items: adjustedItems };
 };
 
 // Bottle Type Management
