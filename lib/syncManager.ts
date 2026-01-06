@@ -282,7 +282,8 @@ export class SyncManager {
             formattedItem.pricePerUnit = parseFloat(
               this.formatDecimal(item.pricePerUnit, 2)
             );
-            formattedItem.amount = formattedItem.quantity * formattedItem.pricePerUnit;
+            formattedItem.amount =
+              formattedItem.quantity * formattedItem.pricePerUnit;
           }
 
           return formattedItem;
