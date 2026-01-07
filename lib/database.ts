@@ -423,6 +423,45 @@ export const updateItemPrice = async (
   }
 };
 
+export const updateItem = async (
+  itemId: number,
+  updates: {
+    name?: string;
+    unit_type?: "weight" | "count";
+    last_price_per_kg?: number;
+    last_price_per_unit?: number;
+  }
+) => {
+  if (!db) throw new Error("Database not initialized");
+
+  const fields = [];
+  const values = [];
+
+  if (updates.name !== undefined) {
+    fields.push("name = ?");
+    values.push(updates.name);
+  }
+  if (updates.unit_type !== undefined) {
+    fields.push("unit_type = ?");
+    values.push(updates.unit_type);
+  }
+  if (updates.last_price_per_kg !== undefined) {
+    fields.push("last_price_per_kg = ?");
+    values.push(updates.last_price_per_kg);
+  }
+  if (updates.last_price_per_unit !== undefined) {
+    fields.push("last_price_per_unit = ?");
+    values.push(updates.last_price_per_unit);
+  }
+
+  if (fields.length === 0) return;
+
+  const query = `UPDATE items SET ${fields.join(", ")} WHERE id = ?`;
+  values.push(itemId);
+
+  await db.runAsync(query, values);
+};
+
 export const deleteItem = async (id: number) => {
   if (!db) throw new Error("Database not initialized");
 

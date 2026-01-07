@@ -949,6 +949,16 @@ const createStyles = (colors: any) =>
       padding: 14,
       fontSize: 16,
     },
+    pickerContainer: {
+      borderWidth: 1,
+      borderRadius: 8,
+      overflow: 'hidden',
+      backgroundColor: colors.inputBackground,
+      borderColor: colors.border,
+    },
+    picker: {
+      height: 50,
+    },
     helperText: {
       fontSize: 12,
       marginTop: 4,

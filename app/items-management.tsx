@@ -4,6 +4,7 @@ import {
   deleteItem,
   deleteMultipleItems,
   getAllItems,
+  updateItem,
   updateItemPrice,
 } from "@/lib/database";
 import { ItemSyncManager } from "@/lib/syncManager";
@@ -20,8 +21,10 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
+import { useTheme } from "@/constants/ThemeContext";
 
 export default function ItemsManagementScreen() {
+  const { colors } = useTheme();
   const [items, setItems] = useState<any[]>([]);
   const [showAddModal, setShowAddModal] = useState(false);
   const [newItemName, setNewItemName] = useState("");
@@ -154,19 +157,24 @@ export default function ItemsManagementScreen() {
     }
 
     try {
-      // Update item name in database
-      // TODO: Add database function to update item
-      Alert.alert("Info", "Item update not fully implemented yet");
+      // Get the current item to know its unit_type
+      const currentItem = items.find(item => item.id === itemId);
+      if (!currentItem) return;
 
-      // Update price
-      await handleUpdatePrice(itemId, price);
+      // Update item name and price
+      await updateItem(itemId, {
+        name: name.trim(),
+        [currentItem.unit_type === "count" ? "last_price_per_unit" : "last_price_per_kg"]: parseFloat(price)
+      });
 
+      await loadData();
       setEditingItemId(null);
       setEditingName("");
       setEditingPrice("");
+      Alert.alert("Success", "Item updated successfully");
     } catch (error) {
       console.error("Error updating item:", error);
-      Alert.alert("Error", "Failed to update item");
+      Alert.alert("Error", (error as Error).message || "Failed to update item");
     }
   };
 
@@ -444,8 +452,9 @@ export default function ItemsManagementScreen() {
 
             <View style={styles.modalBody}>
               <TextInput
-                style={styles.modalInput}
+                style={[styles.modalInput, { backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
                 placeholder="Item Name (e.g., Copper, Plastic)"
+                placeholderTextColor={colors.placeholder}
                 value={newItemName}
                 onChangeText={setNewItemName}
               />
@@ -493,12 +502,13 @@ export default function ItemsManagementScreen() {
               </View>
 
               <TextInput
-                style={styles.modalInput}
+                style={[styles.modalInput, { backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
                 placeholder={
                   newItemUnitType === "count"
                     ? "Price per unit (₹)"
                     : "Price per kg (₹)"
                 }
+                placeholderTextColor={colors.placeholder}
                 keyboardType="decimal-pad"
                 value={newItemPrice}
                 onChangeText={setNewItemPrice}
@@ -830,7 +840,6 @@ const styles = StyleSheet.create({
   },
   modalInput: {
     borderWidth: 1,
-    borderColor: "#ddd",
     borderRadius: 8,
     padding: 14,
     fontSize: 16,

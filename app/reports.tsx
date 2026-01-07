@@ -16,8 +16,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import * as XLSX from "xlsx";
+import { useTheme } from "@/constants/ThemeContext";
 
 export default function ReportsScreen() {
+  const { colors } = useTheme();
   const [bills, setBills] = useState<any[]>([]);
   const [filteredBills, setFilteredBills] = useState<any[]>([]);
   const [filters, setFilters] = useState({
@@ -312,22 +314,25 @@ export default function ReportsScreen() {
         <Text style={styles.filtersTitle}>Filters</Text>
 
         <TextInput
-          style={styles.filterInput}
+          style={[styles.filterInput, { backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
           placeholder="Customer Name"
+          placeholderTextColor={colors.placeholder}
           value={filters.customer}
           onChangeText={(text) => setFilters({ ...filters, customer: text })}
         />
 
         <View style={styles.filterRow}>
           <TextInput
-            style={[styles.filterInput, { flex: 1 }]}
+            style={[styles.filterInput, { flex: 1, backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
             placeholder="Date From (YYYY-MM-DD)"
+            placeholderTextColor={colors.placeholder}
             value={filters.dateFrom}
             onChangeText={(text) => setFilters({ ...filters, dateFrom: text })}
           />
           <TextInput
-            style={[styles.filterInput, { flex: 1 }]}
+            style={[styles.filterInput, { flex: 1, backgroundColor: colors.inputBackground, borderColor: colors.border, color: colors.text }]}
             placeholder="Date To (YYYY-MM-DD)"
+            placeholderTextColor={colors.placeholder}
             value={filters.dateTo}
             onChangeText={(text) => setFilters({ ...filters, dateTo: text })}
           />
@@ -456,7 +461,6 @@ const styles = StyleSheet.create({
   },
   filterInput: {
     borderWidth: 1,
-    borderColor: "#dee2e6",
     borderRadius: 8,
     padding: 12,
     fontSize: 14,

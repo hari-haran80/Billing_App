@@ -962,58 +962,43 @@ export class ItemSyncManager {
       let uploaded = 0;
       let skipped = 0;
 
-      // Try to fetch backend items, but continue if it fails
-      let backendItems: any[] = [];
-      let fetchError: string | null = null;
-
+      // First, upload all local items to backend for sync
+      let syncResponse: any = null;
       try {
-        const fetchedItems = await this.fetchBackendItems();
-        backendItems = Array.isArray(fetchedItems) ? fetchedItems : [];
-        console.log(
-          `[ITEM_SYNC] Fetched ${backendItems.length} items from backend`
-        );
+        syncResponse = await this.syncItemsWithBackend(localItems);
+        uploaded = syncResponse.stats?.uploaded_to_database || 0;
+        skipped = syncResponse.stats?.duplicates_ignored || 0;
+        console.log(`[ITEM_SYNC] Sync stats: uploaded ${uploaded}, skipped ${skipped}`);
       } catch (error) {
-        console.warn(
-          "[ITEM_SYNC] Failed to fetch backend items, skipping download:",
-          error
-        );
-        fetchError = (error as Error).message;
-        backendItems = [];
+        console.warn("[ITEM_SYNC] Failed to sync items with backend:", error);
+        // Continue with download only
       }
 
-      // Create maps for easy lookup
-      const backendMap = new Map(
-        (backendItems || []).map((item) => [item.sync_uuid || item.name, item])
-      );
-      const localMap = new Map(
-        localItems.map((item) => [item.sync_uuid || item.name, item])
-      );
-
-      // Download items that exist in backend but not locally (only if fetch succeeded)
-      if (backendItems.length > 0) {
-        for (const [key, backendItem] of backendMap) {
-          if (!localMap.has(key)) {
-            await this.downloadItem(backendItem);
-            downloaded++;
-          } else {
-            skipped++;
-          }
+      // Download items from backend
+      let backendItems: any[] = [];
+      if (syncResponse && syncResponse.items_to_download) {
+        backendItems = syncResponse.items_to_download;
+      } else {
+        // Fallback to fetch
+        try {
+          backendItems = await this.fetchBackendItems();
+        } catch (error) {
+          console.warn("[ITEM_SYNC] Failed to fetch backend items:", error);
+          backendItems = [];
         }
       }
 
-      // Upload items that exist locally but not in backend
-      for (const [key, localItem] of localMap) {
-        if (!backendMap.has(key)) {
-          const uploadedItem = await this.uploadItem(localItem);
-          if (uploadedItem) {
-            uploaded++;
-          }
+      // Download all items from backend (this will update existing and add new)
+      if (backendItems.length > 0) {
+        for (const backendItem of backendItems) {
+          await this.downloadItem(backendItem);
+          downloaded++;
         }
       }
 
       let message = `Synced ${downloaded} downloaded, ${uploaded} uploaded, ${skipped} skipped`;
-      if (fetchError) {
-        message += `. Note: Download skipped due to backend error: ${fetchError}`;
+      if (syncResponse && syncResponse.message) {
+        message = syncResponse.message;
       }
 
       return {
@@ -1036,37 +1021,34 @@ export class ItemSyncManager {
   }
 
   /**
-   * Fetch all items from backend
+   * Sync all local items with backend
    */
-  private static async fetchBackendItems(): Promise<any[]> {
-    const response = await fetch(`${this.apiBaseUrl}/api/items/`, {
-      method: "GET",
+  private static async syncItemsWithBackend(localItems: any[]): Promise<any> {
+    const deviceId = "mobile_app"; // Or get from device
+
+    const response = await fetch(`${this.apiBaseUrl}/api/items/sync/`, {
+      method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
+      body: JSON.stringify({
+        items: localItems.map(item => ({
+          item_code: item.item_code,
+          sync_uuid: item.sync_uuid,
+          name: item.name,
+          unit_type: item.unit_type,
+          last_price_per_kg: item.last_price_per_kg || 0,
+          last_price_per_unit: item.last_price_per_unit || 0,
+        })),
+        device_id: deviceId,
+      }),
     });
 
     if (!response.ok) {
-      // Handle backend errors - if it's a 500, the backend has issues
-      if (response.status === 500) {
-        console.warn(
-          "[ITEM_SYNC] Backend returned 500 for get_all_items - backend needs fixing"
-        );
-        throw new Error(
-          "Backend API error (500) - please check backend migrations"
-        );
-      }
-      throw new Error(`Failed to fetch items: ${response.status}`);
+      throw new Error(`Sync failed: ${response.status}`);
     }
 
-    try {
-      const data = await response.json();
-      const items = data.items || data || [];
-      return Array.isArray(items) ? items : [];
-    } catch (error) {
-      console.warn("[ITEM_SYNC] Failed to parse response JSON:", error);
-      return [];
-    }
+    return await response.json();
   }
 
   /**

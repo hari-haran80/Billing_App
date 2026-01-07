@@ -2,11 +2,8 @@
   "expo": {
     "name": "Billing_App",
     "slug": "Billing_App",
-    "version": "1.0.0",
-    "platforms": [
-      "ios",
-      "android"
-    ],
+    "version": "1.0.5",
+    "platforms": ["ios", "android"],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "billingapp",
@@ -16,6 +13,8 @@
       "supportsTablet": true
     },
     "android": {
+      "package": "com.anonymous.Billing_App",
+      "versionCode": 6,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -23,8 +22,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false,
-      "package": "com.anonymous.Billing_App"
+      "predictiveBackGestureEnabled": false
     },
     "web": {
       "output": "static",

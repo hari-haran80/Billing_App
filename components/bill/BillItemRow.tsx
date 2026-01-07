@@ -381,7 +381,7 @@ const createStyles = (colors: any) =>
       marginBottom: 8,
     },
     pickerContainer: {
-      backgroundColor: colors.background,
+      backgroundColor: colors.inputBackground,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: 8,
