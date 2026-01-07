@@ -3,6 +3,7 @@ import { Slot } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
 import { initDatabase } from "../lib/database";
+import { ErrorBoundary } from "../components/ErrorBoundary";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -19,7 +20,9 @@ export default function RootLayout() {
   return (
     <ThemeProvider>
       <StatusBar style="auto" />
-      <Slot />
+      <ErrorBoundary>
+        <Slot />
+      </ErrorBoundary>
     </ThemeProvider>
   );
 }

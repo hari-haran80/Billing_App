@@ -1,7 +1,7 @@
 // components/bill/BillItemRow.tsx - UPDATED
 import { useTheme } from "@/constants/ThemeContext";
 import { Picker } from "@react-native-picker/picker";
-import React from "react";
+import React, { useMemo } from "react";
 import {
     StyleSheet,
     Text,
@@ -21,7 +21,7 @@ interface BillItemRowProps {
   onRemove: () => void;
 }
 
-export default function BillItemRow({
+const BillItemRow = React.memo(({
   index,
   item,
   availableItems,
@@ -29,7 +29,7 @@ export default function BillItemRow({
   onItemSelect,
   onUpdate,
   onRemove,
-}: BillItemRowProps) {
+}: BillItemRowProps) => {
   const { colors } = useTheme();
 
   const handleQuantityChange = (value: string) => {
@@ -37,7 +37,10 @@ export default function BillItemRow({
   };
 
   const handleWeightChange = (value: string, index: number) => {
-    const newWeights = [...(item.weights || [{ weight: "", weightMode }])];
+    const currentWeights = item.weights || [{ weight: "", weightMode }];
+    if (index < 0 || index >= currentWeights.length) return;
+    
+    const newWeights = [...currentWeights];
     newWeights[index] = { ...newWeights[index], weight: value };
     onUpdate({ weights: newWeights });
   };
@@ -80,20 +83,21 @@ export default function BillItemRow({
   // Show all available items
   const filteredItems = availableItems;
 
-  return (
-    <View style={styles.container}>
-      {/* Row Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <View style={styles.indexCircle}>
-            <Text style={styles.indexText}>{index + 1}</Text>
+  try {
+    return (
+      <View style={styles.container}>
+        {/* Row Header */}
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <View style={styles.indexCircle}>
+              <Text style={styles.indexText}>{index + 1}</Text>
+            </View>
+            <Text style={styles.headerTitle}>Item #{index + 1}</Text>
           </View>
-          <Text style={styles.headerTitle}>Item #{index + 1}</Text>
+          <TouchableOpacity onPress={onRemove} style={styles.deleteButton}>
+            <Icon name="close" size={22} color={colors.danger} />
+          </TouchableOpacity>
         </View>
-        <TouchableOpacity onPress={onRemove} style={styles.deleteButton}>
-          <Icon name="close" size={22} color={colors.danger} />
-        </TouchableOpacity>
-      </View>
 
       {/* Item Selection */}
       <View style={styles.section}>
@@ -181,7 +185,7 @@ export default function BillItemRow({
                         {
                           backgroundColor: colors.background,
                           borderColor:
-                            weightEntry.weightMode === "L"
+                            (weightEntry.weightMode || "normal") === "L"
                               ? colors.warning
                               : colors.primary,
                           color: colors.text,
@@ -200,19 +204,20 @@ export default function BillItemRow({
                         styles.weightModeButton,
                         {
                           backgroundColor:
-                            weightEntry.weightMode === "L"
+                            (weightEntry.weightMode || "normal") === "L"
                               ? colors.warning
                               : colors.primary,
                         },
                       ]}
                       onPress={() => {
-                        const newWeights = [
-                          ...(item.weights || [{ weight: "", weightMode }]),
-                        ];
+                        const currentWeights = item.weights || [{ weight: "", weightMode }];
+                        if (weightIndex < 0 || weightIndex >= currentWeights.length) return;
+                        
+                        const newWeights = [...currentWeights];
                         newWeights[weightIndex] = {
                           ...newWeights[weightIndex],
                           weightMode:
-                            newWeights[weightIndex].weightMode === "L"
+                            (newWeights[weightIndex].weightMode || "normal") === "L"
                               ? "normal"
                               : "L",
                         };
@@ -220,7 +225,7 @@ export default function BillItemRow({
                       }}
                     >
                       <Text style={styles.weightModeText}>
-                        {weightEntry.weightMode === "L" ? "L" : "N"}
+                        {(weightEntry.weightMode || "normal") === "L" ? "L" : "N"}
                       </Text>
                     </TouchableOpacity>
                     <TouchableOpacity
@@ -312,7 +317,15 @@ export default function BillItemRow({
       )}
     </View>
   );
-}
+  } catch (error) {
+    console.error('Error rendering BillItemRow:', error);
+    return (
+      <View style={styles.container}>
+        <Text style={{ color: 'red' }}>Error rendering item</Text>
+      </View>
+    );
+  }
+});
 
 const createStyles = (colors: any) =>
   StyleSheet.create({
@@ -386,10 +399,12 @@ const createStyles = (colors: any) =>
       borderColor: colors.border,
       borderRadius: 8,
       overflow: "hidden",
+      minHeight: 50,
     },
     picker: {
       height: 50,
       backgroundColor: colors.inputBackground,
+      color: colors.text,
     },
     inputRow: {
       flexDirection: "row",
@@ -496,3 +511,5 @@ const createStyles = (colors: any) =>
       marginTop: 8,
     },
   });
+
+export default BillItemRow;

@@ -71,27 +71,54 @@ export default function CreateBillScreen() {
   const [weightReduction, setWeightReduction] = useState(0.1);
 
   useEffect(() => {
+    let intervalId: number;
+
+    const loadData = async () => {
+      try {
+        // Check if DB is already initialized
+        if (isDbInitialized()) {
+          await loadItems();
+          return;
+        }
+
+        // If not initialized, wait with a timeout
+        let attempts = 0;
+        const maxAttempts = 20; // 10 seconds max wait
+
+        intervalId = setInterval(async () => {
+          attempts++;
+          if (isDbInitialized()) {
+            clearInterval(intervalId);
+            await loadItems();
+          } else if (attempts >= maxAttempts) {
+            clearInterval(intervalId);
+            console.warn("Database initialization timeout");
+            setLoading(false);
+            Alert.alert("Warning", "Database initialization is taking longer than expected. Some features may not work properly.");
+          }
+        }, 500);
+      } catch (error) {
+        console.error("Error loading data:", error);
+        setLoading(false);
+        Alert.alert("Error", "Failed to load application data. Please restart the app.");
+      }
+    };
+
     loadData();
+
+    // Cleanup function
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
   }, []);
 
+  // Calculate total amount whenever billItems change
   useEffect(() => {
-    const total = billItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+    const total = billItems.reduce((sum, item) => sum + item.amount, 0);
     setTotalAmount(total);
   }, [billItems]);
-
-  const loadData = async () => {
-    try {
-      const interval = setInterval(() => {
-        if (isDbInitialized()) {
-          clearInterval(interval);
-          loadItems();
-        }
-      }, 500);
-    } catch (error) {
-      console.error("Error loading data:", error);
-      setLoading(false);
-    }
-  };
 
   const loadItems = async () => {
     try {
@@ -103,10 +130,17 @@ export default function CreateBillScreen() {
     } catch (error) {
       console.error("Error loading items:", error);
       setLoading(false);
+      Alert.alert("Error", "Failed to load items. Please restart the app.");
     }
   };
 
   const addNewBillItem = () => {
+    // Prevent adding too many items to avoid memory issues
+    if (billItems.length >= 50) {
+      Alert.alert("Limit Reached", "Maximum 50 items allowed per bill");
+      return;
+    }
+
     setBillItems([
       ...billItems,
       {
@@ -136,10 +170,17 @@ export default function CreateBillScreen() {
           newItem.amount = quantity * price;
         } else {
           // Weight items: amount = total weight * price
-          const totalWeight = newItem.weights.reduce((sum, weightEntry) => {
-            return sum + (parseFloat(weightEntry.weight) || 0);
+          const weights = newItem.weights || [];
+          const totalWeight = weights.reduce((sum, weightEntry) => {
+            const weight = parseFloat(weightEntry?.weight || '0') || 0;
+            return sum + (isNaN(weight) ? 0 : weight);
           }, 0);
           newItem.amount = totalWeight * price;
+        }
+
+        // Ensure amount is always a valid number
+        if (isNaN(newItem.amount) || !isFinite(newItem.amount)) {
+          newItem.amount = 0;
         }
 
         return newItem;
@@ -194,66 +235,77 @@ export default function CreateBillScreen() {
       Alert.alert("Success", "New item added successfully!");
     } catch (error) {
       console.error("Error adding new item:", error);
-      Alert.alert("Error", error.message || "Failed to add new item");
+      Alert.alert("Error", error instanceof Error ? error.message : "Failed to add new item");
     }
   };
 
   const handleSaveBill = async (printAfterSave: boolean = false) => {
-    // Validate all items
-    for (const item of billItems) {
-      if (!item.itemId || !item.price) {
-        Alert.alert("Error", "Please fill all item details");
-        return;
-      }
+    try {
+      // Validate all items
+      for (const item of billItems) {
+        if (!item.itemId || !item.price) {
+          Alert.alert("Error", "Please fill all item details");
+          return;
+        }
 
-      if (item.unitType === "weight") {
-        // Check if at least one weight entry has a value
-        const hasValidWeight = item.weights.some(
-          (weightEntry) =>
-            weightEntry.weight && parseFloat(weightEntry.weight) > 0
-        );
-        if (!hasValidWeight) {
-          Alert.alert("Error", "Please enter weight for weight-based items");
+        if (item.unitType === "weight") {
+          // Check if at least one weight entry has a value
+          const hasValidWeight = item.weights.some(
+            (weightEntry) =>
+              weightEntry.weight && parseFloat(weightEntry.weight) > 0
+          );
+          if (!hasValidWeight) {
+            Alert.alert("Error", "Please enter weight for weight-based items");
+            return;
+          }
+        }
+
+        if (
+          item.unitType === "count" &&
+          (!item.quantity || parseInt(item.quantity) <= 0)
+        ) {
+          Alert.alert("Error", "Please enter valid quantity for count items");
           return;
         }
       }
 
-      if (
-        item.unitType === "count" &&
-        (!item.quantity || parseInt(item.quantity) <= 0)
-      ) {
-        Alert.alert("Error", "Please enter valid quantity for count items");
-        return;
-      }
-    }
+      setSaving(true);
 
-    setSaving(true);
-    try {
-      // Generate bill number
-      const billNumber = await getNextBillNumber();
+      // Add timeout to prevent hanging
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Save operation timed out")), 30000); // 30 second timeout
+      });
 
-      // Prepare bill data
-      const billData = {
-        billNumber,
-        totalAmount,
-        items: billItems.map((item) => ({
-          itemId: item.itemId,
-          weight:
-            item.unitType === "weight"
-              ? item.weights.reduce(
-                  (sum, w) => sum + (parseFloat(w.weight) || 0),
-                  0
-                )
-              : 0,
-          quantity: parseInt(item.quantity) || 1,
-          weightMode: item.weights[0]?.weightMode || "normal",
-          price: parseFloat(item.price),
-          amount: item.amount,
-        })),
+      const savePromise = async () => {
+        // Generate bill number
+        const billNumber = await getNextBillNumber();
+
+        // Prepare bill data with size limits
+        const billData = {
+          billNumber,
+          totalAmount,
+          items: billItems.map((item) => ({
+            itemId: item.itemId,
+            weight:
+              item.unitType === "weight"
+                ? item.weights.reduce(
+                    (sum, w) => sum + (parseFloat(w.weight) || 0),
+                    0
+                  )
+                : 0,
+            quantity: parseInt(item.quantity) || 1,
+            weightMode: item.weights[0]?.weightMode || "normal",
+            price: parseFloat(item.price),
+            amount: item.amount,
+          })),
+        };
+
+        // Save to database
+        const billId = await saveBill(billData);
+        return { billId, billNumber };
       };
 
-      // Save to database
-      const billId = await saveBill(billData);
+      const { billId, billNumber } = await Promise.race([savePromise(), timeoutPromise]) as { billId: number; billNumber: string };
 
       if (printAfterSave) {
         await handlePrintBill(billId, billNumber);
@@ -264,7 +316,8 @@ export default function CreateBillScreen() {
       }
     } catch (error) {
       console.error("Error saving bill:", error);
-      Alert.alert("Error", error.message || "Failed to save bill");
+      const errorMessage = error instanceof Error ? error.message : "Failed to save bill. Please try again.";
+      Alert.alert("Error", errorMessage);
       setSaving(false);
     }
   };
@@ -272,81 +325,90 @@ export default function CreateBillScreen() {
   const handlePrintBill = async (billId: number, billNumber: string) => {
     setPrinting(true);
     try {
-      // Prepare bill data for PDF
-      const billData = {
-        id: billId,
-        billNumber,
-        customerName: "Walk-in Customer",
-        totalAmount,
-        date: new Date().toISOString(),
-        isSynced: false,
-        items: billItems.map((item) => {
-          const itemDetails = availableItems.find((i) => i.id === item.itemId);
-          if (item.unitType === "count") {
-            return {
-              itemName: itemDetails?.name || item.itemName,
-              unitType: "count",
-              quantity: parseInt(item.quantity) || 1,
-              pricePerUnit: parseFloat(item.price),
-              amount: item.amount,
-            };
-          } else {
-            // Calculate total weight from all weight entries
-            const totalWeight = item.weights.reduce((sum, weightEntry) => {
-              return sum + (parseFloat(weightEntry.weight) || 0);
-            }, 0);
+      // Add timeout for print operation
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error("Print operation timed out")), 60000); // 60 second timeout
+      });
 
-            const isLMode = item.weights.some((w) => w.weightMode === "L");
-            let originalWeight, lWeight, finalWeight, reducedWeight;
-
-            if (isLMode) {
-              lWeight = totalWeight;
-              originalWeight = lWeight / (1 - weightReduction);
-              finalWeight = originalWeight;
-              reducedWeight = originalWeight - lWeight;
+      const printPromise = async () => {
+        // Prepare bill data for PDF
+        const billData = {
+          id: billId,
+          billNumber,
+          customerName: "Walk-in Customer",
+          totalAmount,
+          date: new Date().toISOString(),
+          isSynced: false,
+          items: billItems.map((item) => {
+            const itemDetails = availableItems.find((i) => i.id === item.itemId);
+            if (item.unitType === "count") {
+              return {
+                itemName: itemDetails?.name || item.itemName,
+                unitType: "count" as const,
+                quantity: parseInt(item.quantity) || 1,
+                pricePerUnit: parseFloat(item.price),
+                amount: item.amount,
+              };
             } else {
-              originalWeight = totalWeight;
-              lWeight = 0;
-              finalWeight = totalWeight;
-              reducedWeight = 0;
-            }
+              // Calculate total weight from all weight entries
+              const totalWeight = item.weights.reduce((sum, weightEntry) => {
+                return sum + (parseFloat(weightEntry.weight) || 0);
+              }, 0);
 
-            return {
-              itemName: itemDetails?.name || item.itemName,
-              unitType: "weight",
-              originalWeight: originalWeight,
-              lWeight: lWeight,
-              reducedWeight: reducedWeight,
-              finalWeight: finalWeight,
-              weightMode: item.weights[0]?.weightMode || "normal",
-              pricePerKg: parseFloat(item.price),
-              amount: item.amount,
-              weightEntries: item.weights, // Include individual weight entries for detailed display
-            };
-          }
-        }),
+              const isLMode = item.weights.some((w) => w.weightMode === "L");
+              let originalWeight, lWeight, finalWeight, reducedWeight;
+
+              if (isLMode) {
+                lWeight = totalWeight;
+                originalWeight = lWeight / (1 - weightReduction);
+                finalWeight = originalWeight;
+                reducedWeight = originalWeight - lWeight;
+              } else {
+                originalWeight = totalWeight;
+                lWeight = 0;
+                finalWeight = totalWeight;
+                reducedWeight = 0;
+              }
+
+              return {
+                itemName: itemDetails?.name || item.itemName,
+                unitType: "weight" as const,
+                originalWeight: originalWeight,
+                lWeight: lWeight,
+                reducedWeight: reducedWeight,
+                finalWeight: finalWeight,
+                weightMode: item.weights[0]?.weightMode || "normal",
+                pricePerKg: parseFloat(item.price),
+                amount: item.amount,
+                weightEntries: item.weights, // Include individual weight entries for detailed display
+              };
+            }
+          }),
+        };
+
+        // Generate PDF
+        const pdfUri = await PDFGenerator.generatePDF(billData, "tamil");
+
+        // Print the PDF
+        await Print.printAsync({
+          uri: pdfUri,
+          printerUrl: "auto",
+        });
+
+        return pdfUri;
       };
 
-      // Generate PDF
-      const pdfUri = await PDFGenerator.generatePDF(billData, "tamil");
-
-      // Print the PDF
-      await Print.printAsync({
-        uri: pdfUri,
-        printerUrl: "auto",
-      });
+      await Promise.race([printPromise(), timeoutPromise]);
 
       Alert.alert("Success", "Bill printed successfully!");
       resetForm();
     } catch (error) {
       console.error("Error printing bill:", error);
-      Alert.alert(
-        "Error",
-        "Failed to print bill. Make sure printer is connected."
-      );
+      const errorMessage = error instanceof Error ? error.message : "Failed to print bill. Make sure printer is connected.";
+      Alert.alert("Print Error", errorMessage);
     } finally {
       setPrinting(false);
-      setSaving(false);
+      setSaving(false); // Also reset saving state in case we came from save+print
     }
   };
 
@@ -635,11 +697,11 @@ export default function CreateBillScreen() {
                 <Text style={[styles.modalLabel, { color: colors.text }]}>
                   Item Type
                 </Text>
-                <View style={styles.pickerContainer}>
+                <View style={[styles.pickerContainer, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
                   <Picker
                     selectedValue={newItemUnitType}
                     onValueChange={(value) => setNewItemUnitType(value)}
-                    style={[styles.picker, { color: colors.text }]}
+                    style={[styles.picker, { color: colors.text, backgroundColor: colors.inputBackground }]}
                     dropdownIconColor={colors.textSecondary}
                   >
                     <Picker.Item

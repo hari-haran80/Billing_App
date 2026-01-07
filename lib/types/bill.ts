@@ -4,8 +4,13 @@ export interface BillItem {
   quantity?: number;
   pricePerUnit?: number;
   pricePerKg?: number;
+  originalWeight?: number;
   lWeight?: number;
+  reducedWeight?: number;
+  finalWeight?: number;
+  weightMode?: string;
   amount: number;
+  weightEntries?: Array<{ weight: string; weightMode: string }>;
 }
 
 export interface BillData {

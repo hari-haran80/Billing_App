@@ -18,6 +18,19 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import BackButton from "../components/common/BackButton";
 import { PDFGenerator } from "../lib/pdfGenerator";
 
+interface BillItem {
+  bottle_display_name?: string;
+  item_name: string;
+  unit_type: string;
+  quantity?: number;
+  price_per_unit?: number;
+  price_per_kg?: number;
+  l_weight?: number;
+  final_weight?: number;
+  weight_mode?: string;
+  amount: number;
+}
+
 export default function BillDetailsScreen() {
   const { billId } = useLocalSearchParams();
   const [bill, setBill] = useState<any>(null);
@@ -49,7 +62,7 @@ export default function BillDetailsScreen() {
         totalAmount: bill.total_amount || 0,
         date: bill.date,
         isSynced: bill.is_synced,
-        items: bill.items.map((item) => ({
+        items: bill.items.map((item: BillItem) => ({
           itemName: item.bottle_display_name || item.item_name,
           unitType: item.unit_type,
           quantity: item.quantity || 1,
@@ -83,7 +96,7 @@ export default function BillDetailsScreen() {
         totalAmount: bill.total_amount || 0,
         date: bill.date,
         isSynced: bill.is_synced,
-        items: bill.items.map((item) => ({
+        items: bill.items.map((item: BillItem) => ({
           itemName: item.bottle_display_name || item.item_name,
           unitType: item.unit_type,
           quantity: item.quantity || 1,
@@ -115,7 +128,7 @@ export default function BillDetailsScreen() {
         totalAmount: bill.total_amount || 0,
         date: bill.date,
         isSynced: bill.is_synced,
-        items: bill.items.map((item) => ({
+        items: bill.items.map((item: BillItem) => ({
           itemName: item.bottle_display_name || item.item_name,
           unitType: item.unit_type,
           quantity: item.quantity || 1,
@@ -152,6 +165,10 @@ export default function BillDetailsScreen() {
             try {
               // Delete from database
               const db = await import("@/lib/database").then((m) => m.getDb());
+              if (!db) {
+                Alert.alert("Error", "Database not available");
+                return;
+              }
               await db.runAsync("DELETE FROM bills WHERE id = ?", [bill.id]);
               Alert.alert("Success", "Bill deleted successfully");
               router.back();
@@ -226,7 +243,7 @@ export default function BillDetailsScreen() {
               Items ({bill.items?.length || 0})
             </Text>
 
-            {bill.items?.map((item: any, index: number) => (
+            {bill.items?.map((item: BillItem, index: number) => (
               <View key={index} style={styles.itemCard}>
                 <View style={styles.itemHeader}>
                   <Text style={styles.itemName}>

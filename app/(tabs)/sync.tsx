@@ -33,6 +33,15 @@ const STORAGE_KEYS = {
   BACKEND_URL: "backend_base_url",
 };
 
+// Define types for database query results
+interface CountResult {
+  count: number;
+}
+
+interface QueueCountResult {
+  count: number;
+}
+
 export default function SyncScreen() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<SyncResult | null>(null);
@@ -71,20 +80,20 @@ export default function SyncScreen() {
       const db = getDb();
       if (!db) return;
 
-      const result = await db.getFirstAsync(
+      const result = await db.getFirstAsync<CountResult>(
         "SELECT COUNT(*) as count FROM bills WHERE is_synced = 0"
       );
 
       if (result) {
-        setUnsyncedCount(result.count);
+        setUnsyncedCount(result.count || 0);
       }
 
-      const queueResult = await db.getFirstAsync(
+      const queueResult = await db.getFirstAsync<QueueCountResult>(
         "SELECT COUNT(*) as count FROM sync_queue"
       );
 
       if (queueResult) {
-        setSyncQueueCount(queueResult.count);
+        setSyncQueueCount(queueResult.count || 0);
       }
     } catch (error) {
       console.error("Error loading unsynced count:", error);
@@ -151,10 +160,19 @@ export default function SyncScreen() {
       // Use the current backend URL
       const testUrl = `${getApiBaseUrl()}/api/sync-status/`;
 
+      // Create AbortController for timeout functionality
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       const response = await fetch(testUrl, {
         method: "GET",
-        timeout: 5000,
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+        },
       });
+
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         setBackendStatus("online");
@@ -254,13 +272,20 @@ export default function SyncScreen() {
         },
       ];
 
+      // Create AbortController for timeout functionality
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000);
+
       const response = await fetch(`${getApiBaseUrl()}/api/sync-bill/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify(sampleBill),
+        signal: controller.signal,
       });
+
+      clearTimeout(timeoutId);
 
       const responseText = await response.text();
       Alert.alert(
@@ -296,10 +321,19 @@ export default function SyncScreen() {
   const handleTestSpecificUrl = async (url: string) => {
     setIsUrlTestLoading(true);
     try {
+      // Create AbortController for timeout functionality
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000);
+
       const response = await fetch(`${url}/api/sync-status/`, {
         method: "GET",
-        timeout: 5000,
+        signal: controller.signal,
+        headers: {
+          'Accept': 'application/json',
+        },
       });
+
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         Alert.alert(
@@ -1236,7 +1270,11 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-
+  statLabel: {
+    fontSize: 14,
+    color: "#6b7280",
+    marginBottom: 4,
+  },
   statValueSuccess: {
     fontSize: 28,
     fontWeight: "bold",
@@ -1306,10 +1344,7 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: "#f3f4f6",
   },
-  statLabel: {
-    fontSize: 15,
-    color: "#4b5563",
-  },
+
   statValue: {
     fontSize: 15,
     fontWeight: "500",

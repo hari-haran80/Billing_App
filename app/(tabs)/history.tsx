@@ -18,9 +18,56 @@ import Icon from "react-native-vector-icons/MaterialIcons";
 import { getAllBills, getBillDetails, getDb } from "../../lib/database";
 import { PDFGenerator } from "../../lib/pdfGenerator";
 
+// Define proper types
+interface BillItem {
+  bottle_display_name?: string;
+  item_name?: string;
+  unit_type?: string;
+  quantity?: number;
+  price_per_unit?: number;
+  price_per_kg?: number;
+  weight_mode?: string;
+  l_weight?: number;
+  final_weight?: number;
+  amount?: number;
+}
+
+interface Bill {
+  id: number;
+  bill_number?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  total_amount?: number;
+  date?: string;
+  sync_uuid?: string;
+  is_synced?: boolean;
+  items: BillItem[];
+  item_count?: number;
+  items_list?: string;
+}
+
+// Helper function to map database unit_type to PDFGenerator expected type
+const mapUnitType = (unitType?: string): "weight" | "count" => {
+  if (!unitType) return "count";
+  
+  const normalized = unitType.toLowerCase();
+  if (normalized.includes("weight") || normalized.includes("kg") || normalized.includes("gram")) {
+    return "weight";
+  }
+  return "count";
+};
+
+// Helper function to get weight value
+const getWeightValue = (item: BillItem): number => {
+  if (item.weight_mode === "L") {
+    return item.l_weight || 0;
+  }
+  return item.final_weight || 0;
+};
+
 export default function HistoryScreen() {
   const router = useRouter();
-  const [bills, setBills] = useState<any[]>([]);
+  const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [page, setPage] = useState(1);
@@ -48,7 +95,13 @@ export default function HistoryScreen() {
       }
 
       const billsData = await getAllBills();
-      setBills(billsData || []);
+      // Ensure is_synced property exists on each bill
+      const processedBills = (billsData || []).map((bill: any) => ({
+        ...bill,
+        // Determine if bill is synced based on sync_uuid or other logic
+        is_synced: !!bill.sync_uuid,
+      }));
+      setBills(processedBills);
       setLoading(false);
       setRefreshing(false);
     } catch (error) {
@@ -63,12 +116,9 @@ export default function HistoryScreen() {
 
     setLoadingMore(true);
     try {
-      // Simulate pagination - you can implement actual pagination with your database
-      // For now, we'll just show all bills and handle infinite scroll
       setTimeout(() => {
         setPage((prev) => prev + 1);
         setLoadingMore(false);
-        // If we have less than pageSize items left, stop loading more
         if (bills.length < page * pageSize) {
           setHasMore(false);
         }
@@ -93,26 +143,30 @@ export default function HistoryScreen() {
   const handleShowPDF = async (billId: number) => {
     try {
       const bill = await getBillDetails(billId);
+      if (!bill) {
+        Alert.alert("Error", "Bill not found");
+        return;
+      }
+      
       const billData = {
         id: bill.id,
-        billNumber: bill.bill_number,
+        billNumber: bill.bill_number || `BILL-${bill.id}`,
         customerName: bill.customer_name || "Walk-in Customer",
-        customerPhone: bill.customer_phone,
+        customerPhone: bill.customer_phone || "",
         totalAmount: bill.total_amount || 0,
-        date: bill.date,
-        isSynced: bill.is_synced,
-        items: bill.items.map((item) => ({
-          itemName: item.bottle_display_name || item.item_name,
-          unitType: item.unit_type,
+        date: bill.date || new Date().toISOString().split('T')[0],
+        isSynced: !!bill.sync_uuid,
+        items: bill.items.map((item: BillItem) => ({
+          itemName: item.bottle_display_name || item.item_name || "Unknown Item",
+          unitType: mapUnitType(item.unit_type),
           quantity: item.quantity || 1,
           pricePerUnit: item.price_per_unit || 0,
           pricePerKg: item.price_per_kg || 0,
-          lWeight: item.weight_mode === "L" ? item.l_weight : item.final_weight,
+          lWeight: getWeightValue(item),
           amount: item.amount || 0,
         })),
       };
       const pdfUri = await PDFGenerator.generatePDF(billData, "tamil");
-      // For showing PDF, we can use Sharing to open it
       if (await Sharing.isAvailableAsync()) {
         await Sharing.shareAsync(pdfUri, {
           mimeType: "application/pdf",
@@ -128,21 +182,26 @@ export default function HistoryScreen() {
   const handlePrintPDF = async (billId: number) => {
     try {
       const bill = await getBillDetails(billId);
+      if (!bill) {
+        Alert.alert("Error", "Bill not found");
+        return;
+      }
+      
       const billData = {
         id: bill.id,
-        billNumber: bill.bill_number,
+        billNumber: bill.bill_number || `BILL-${bill.id}`,
         customerName: bill.customer_name || "Walk-in Customer",
-        customerPhone: bill.customer_phone,
+        customerPhone: bill.customer_phone || "",
         totalAmount: bill.total_amount || 0,
-        date: bill.date,
-        isSynced: bill.is_synced,
-        items: bill.items.map((item) => ({
-          itemName: item.bottle_display_name || item.item_name,
-          unitType: item.unit_type,
+        date: bill.date || new Date().toISOString().split('T')[0],
+        isSynced: !!bill.sync_uuid,
+        items: bill.items.map((item: BillItem) => ({
+          itemName: item.bottle_display_name || item.item_name || "Unknown Item",
+          unitType: mapUnitType(item.unit_type),
           quantity: item.quantity || 1,
           pricePerUnit: item.price_per_unit || 0,
           pricePerKg: item.price_per_kg || 0,
-          lWeight: item.weight_mode === "L" ? item.l_weight : item.final_weight,
+          lWeight: getWeightValue(item),
           amount: item.amount || 0,
         })),
       };
@@ -160,21 +219,26 @@ export default function HistoryScreen() {
   const handleSharePDF = async (billId: number) => {
     try {
       const bill = await getBillDetails(billId);
+      if (!bill) {
+        Alert.alert("Error", "Bill not found");
+        return;
+      }
+      
       const billData = {
         id: bill.id,
-        billNumber: bill.bill_number,
+        billNumber: bill.bill_number || `BILL-${bill.id}`,
         customerName: bill.customer_name || "Walk-in Customer",
-        customerPhone: bill.customer_phone,
+        customerPhone: bill.customer_phone || "",
         totalAmount: bill.total_amount || 0,
-        date: bill.date,
-        isSynced: bill.is_synced,
-        items: bill.items.map((item) => ({
-          itemName: item.bottle_display_name || item.item_name,
-          unitType: item.unit_type,
+        date: bill.date || new Date().toISOString().split('T')[0],
+        isSynced: !!bill.sync_uuid,
+        items: bill.items.map((item: BillItem) => ({
+          itemName: item.bottle_display_name || item.item_name || "Unknown Item",
+          unitType: mapUnitType(item.unit_type),
           quantity: item.quantity || 1,
           pricePerUnit: item.price_per_unit || 0,
           pricePerKg: item.price_per_kg || 0,
-          lWeight: item.weight_mode === "L" ? item.l_weight : item.final_weight,
+          lWeight: getWeightValue(item),
           amount: item.amount || 0,
         })),
       };
@@ -203,7 +267,13 @@ export default function HistoryScreen() {
           onPress: async () => {
             try {
               const db = getDb();
+              if (!db) {
+                Alert.alert("Error", "Database not available");
+                return;
+              }
               await db.runAsync("DELETE FROM bills WHERE id = ?", [billId]);
+              // Also delete related bill items
+              await db.runAsync("DELETE FROM bill_items WHERE bill_id = ?", [billId]);
               // Reload bills
               await loadBills();
               Alert.alert("Success", "Bill deleted successfully");
@@ -226,7 +296,7 @@ export default function HistoryScreen() {
     );
   };
 
-  const renderBillItem = ({ item }: { item: any }) => (
+  const renderBillItem = ({ item }: { item: Bill }) => (
     <View style={styles.billCard}>
       <TouchableOpacity
         style={styles.billContent}
@@ -234,8 +304,8 @@ export default function HistoryScreen() {
       >
         <View style={styles.billHeader}>
           <View>
-            <Text style={styles.billCustomer}>{item.customer_name}</Text>
-            <Text style={styles.billNumber}>Bill: {item.bill_number}</Text>
+            <Text style={styles.billCustomer}>{item.customer_name || "Walk-in Customer"}</Text>
+            <Text style={styles.billNumber}>Bill: {item.bill_number || `BILL-${item.id}`}</Text>
           </View>
 
           <View style={styles.billStatusContainer}>
@@ -255,21 +325,21 @@ export default function HistoryScreen() {
           <View style={styles.billDetailItem}>
             <Icon name="calendar-today" size={16} color="#6c757d" />
             <Text style={styles.billDetailText}>
-              {new Date(item.date).toLocaleDateString("ta-IN")}
+              {item.date ? new Date(item.date).toLocaleDateString("ta-IN") : "Unknown date"}
             </Text>
           </View>
 
           <View style={styles.billDetailItem}>
             <Icon name="inventory" size={16} color="#6c757d" />
             <Text style={styles.billDetailText}>
-              {item.item_count || 0} items
+              {item.item_count || item.items?.length || 0} items
             </Text>
           </View>
 
           <View style={styles.billDetailItem}>
             <Icon name="currency-rupee" size={16} color="#6c757d" />
             <Text style={styles.billDetailText}>
-              ₹{item.total_amount.toFixed(2)}
+              ₹{(item.total_amount || 0).toFixed(2)}
             </Text>
           </View>
         </View>

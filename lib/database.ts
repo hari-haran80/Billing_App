@@ -40,6 +40,34 @@ interface BillNumberRow {
   bill_number: string;
 }
 
+// Add new interfaces for the missing types
+interface ExistingItemRow {
+  id: number;
+  name: string;
+}
+
+interface ExistingBillRow {
+  id: number;
+}
+
+interface BillItemRow {
+  id: number;
+  bill_id: number;
+  item_id: number;
+  original_weight: number;
+  l_weight: number;
+  quantity: number;
+  final_weight: number;
+  weight_mode: "normal" | "L";
+  price_per_kg: number;
+  price_per_unit: number;
+  amount: number;
+  reduced_weight: number;
+  item_name?: string;
+  unit_type?: "weight" | "count";
+  bottle_display_name?: string;
+}
+
 let db: SQLite.SQLiteDatabase | null = null;
 let isInitialized = false;
 
@@ -197,7 +225,7 @@ const addMissingColumns = async () => {
 
         // Populate item_code for existing items
         console.log("[DB] Populating item_code for existing items");
-        const existingItems = await db.getAllAsync(
+        const existingItems = await db.getAllAsync<ExistingItemRow>(
           "SELECT id, name FROM items WHERE item_code IS NULL"
         );
         for (const item of existingItems) {
@@ -324,7 +352,7 @@ const addMissingColumns = async () => {
 
       // Populate sync_uuid for existing bills
       console.log("[DB] Populating sync_uuid for existing bills");
-      const existingBills = await db.getAllAsync("SELECT id FROM bills WHERE sync_uuid IS NULL");
+      const existingBills = await db.getAllAsync<ExistingBillRow>("SELECT id FROM bills WHERE sync_uuid IS NULL");
       for (const bill of existingBills) {
         const syncUuid = generateUUID();
         await db.runAsync("UPDATE bills SET sync_uuid = ? WHERE id = ?", [syncUuid, bill.id]);
@@ -388,7 +416,7 @@ export const updateWeightReduction = async (reduction: number) => {
 // Item Management Functions
 export const getAllItems = async () => {
   if (!db) throw new Error("Database not initialized");
-  return await db.getAllAsync(`
+  return await db.getAllAsync<ItemRow>(`
     SELECT * FROM items 
     ORDER BY name ASC
   `);
@@ -396,7 +424,7 @@ export const getAllItems = async () => {
 
 export const getBottleTypes = async () => {
   if (!db) throw new Error("Database not initialized");
-  return await db.getAllAsync("SELECT * FROM bottle_types ORDER BY name");
+  return await db.getAllAsync<BottleRow>("SELECT * FROM bottle_types ORDER BY name");
 };
 
 export const addNewItem = async (
@@ -410,7 +438,7 @@ export const addNewItem = async (
   if (!safeName) throw new Error("Item name cannot be empty");
 
   // Check if item with same name already exists
-  const existing = await db.getFirstAsync("SELECT id FROM items WHERE name = ?", [safeName]);
+  const existing = await db.getFirstAsync<ItemRow>("SELECT id FROM items WHERE name = ?", [safeName]);
   if (existing) {
     throw new Error("Item with this name already exists");
   }
@@ -759,7 +787,7 @@ export const getBillDetails = async (billId: number) => {
     "SELECT * FROM bills WHERE id = ?",
     [billId]
   );
-  const items = await db.getAllAsync(
+  const items = await db.getAllAsync<BillItemRow>(
     `
     SELECT 
       bi.*, 
@@ -781,7 +809,7 @@ export const getBillDetails = async (billId: number) => {
         ...item,
         final_weight: item.original_weight,
         amount: Number((item.l_weight * item.price_per_kg).toFixed(2)),
-      };
+      } as BillItemRow;
     }
     return item;
   });

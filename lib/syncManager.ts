@@ -14,6 +14,7 @@ const generateItemCode = (name: string, id?: number): string => {
   return baseCode.substring(0, 10);
 };
 
+// Define interfaces
 export interface SyncResult {
   success: boolean;
   syncedBills: number;
@@ -23,8 +24,116 @@ export interface SyncResult {
   message: string;
 }
 
+export interface ItemSyncResult {
+  success: boolean;
+  downloaded: number;
+  uploaded: number;
+  skipped: number;
+  message: string;
+}
+
+interface SyncStatusResult {
+  unsyncedBills: number;
+  queueItems: number;
+}
+
+interface CountResult {
+  count: number;
+}
+
+interface BillRow {
+  id: number;
+  sync_uuid?: string;
+  bill_number: string;
+  customer_name: string;
+  customer_phone?: string;
+  total_amount: number;
+  date: string;
+  items?: any[];
+}
+
+interface ItemRow {
+  id: number;
+  name: string;
+  unit_type: "weight" | "count";
+  sync_uuid?: string;
+  item_code?: string;
+  last_price_per_kg?: number;
+  last_price_per_unit?: number;
+  created_at?: string;
+}
+
+interface BottleTypeRow {
+  id: number;
+  name: string;
+  display_name: string;
+  standard_weight: number;
+  price_per_unit: number;
+  created_at?: string;
+}
+
+interface BillItemRow {
+  item_id: number;
+  itemName: string;
+  unitType: "weight" | "count";
+  syncUuid?: string;
+  originalWeight: number;
+  lWeight: number;
+  reducedWeight: number;
+  quantity: number;
+  finalWeight: number;
+  weightMode: "normal" | "L";
+  pricePerKg: number;
+  pricePerUnit: number;
+  amount: number;
+}
+
+interface SyncItemData {
+  item_sync_uuid?: string;
+  unit_type: "weight" | "count";
+  quantity: number;
+  weight_mode: "normal" | "L";
+  original_weight: number;
+  l_weight: number;
+  reduced_weight: number;
+  final_weight: number;
+  price_per_kg: number;
+  price_per_unit: number;
+  amount: number;
+}
+
+interface SyncBillData {
+  sync_uuid?: string;
+  bill_number: string;
+  customer_name: string;
+  customer_phone: string;
+  total_amount: number;
+  date: string;
+  items: SyncItemData[];
+}
+
+interface BackendItem {
+  sync_uuid?: string;
+  item_code?: string;
+  name: string;
+  unit_type: "weight" | "count";
+  last_price_per_kg?: number;
+  last_price_per_unit?: number;
+}
+
+interface SyncResponseData {
+  success?: boolean;
+  message?: string;
+  error?: string;
+  stats?: {
+    uploaded_to_database?: number;
+    duplicates_ignored?: number;
+  };
+  items_to_download?: BackendItem[];
+}
+
 export class SyncManager {
-  private static apiBaseUrl = "https://wnzjtvbh-8000.inc1.devtunnels.ms";
+  static apiBaseUrl = "https://wnzjtvbh-8000.inc1.devtunnels.ms"; // Changed from private to public
   private static apiTimeout = 30000;
   private static maxRetries = 3;
 
@@ -44,7 +153,7 @@ export class SyncManager {
   /**
    * Get all unsynced bills from local database
    */
-  static async getUnsyncedBills(): Promise<any[]> {
+  static async getUnsyncedBills(): Promise<BillRow[]> {
     try {
       const db = getDb();
       if (!db) {
@@ -54,7 +163,7 @@ export class SyncManager {
 
       console.log("[SYNC] Fetching unsynced bills...");
 
-      const results = await db.getAllAsync(
+      const results = await db.getAllAsync<BillRow>(
         `SELECT 
           b.*,
           COALESCE(
@@ -87,12 +196,17 @@ export class SyncManager {
 
       console.log(`[SYNC] Found ${results.length} unsynced bills`);
 
-      const bills = [];
+      const bills: BillRow[] = [];
       for (const bill of results) {
         try {
-          bill.items = JSON.parse(bill.items || "[]");
-          bill.items = bill.items.filter((item: any) => item.itemName);
-          bill.total_amount = parseFloat(bill.total_amount) || 0;
+          if (bill.items) {
+            bill.items = JSON.parse(bill.items as unknown as string) as any[];
+            bill.items = bill.items.filter((item: any) => item.itemName);
+          } else {
+            bill.items = [];
+          }
+          
+          bill.total_amount = parseFloat(bill.total_amount as unknown as string) || 0;
 
           if (bill.date) {
             bill.date = new Date(bill.date).toISOString();
@@ -130,7 +244,7 @@ export class SyncManager {
   /**
    * Calculate correct weight values based on business rules
    */
-  private static calculateCorrectedWeight(item: any): {
+  private static calculateCorrectedWeight(item: BillItemRow): {
     originalWeight: number;
     lWeight: number;
     reducedWeight: number;
@@ -180,7 +294,7 @@ export class SyncManager {
   /**
    * Validate bill data before sending
    */
-  private static validateBillData(bill: any): {
+  private static validateBillData(bill: BillRow): {
     isValid: boolean;
     errors: string[];
   } {
@@ -207,7 +321,7 @@ export class SyncManager {
 
         // Validate weight calculations
         if (item.unitType === "weight") {
-          const corrected = this.calculateCorrectedWeight(item);
+          const corrected = this.calculateCorrectedWeight(item as BillItemRow);
           if (corrected.amount <= 0) {
             errors.push(`Item ${index + 1}: Invalid calculated amount`);
           }
@@ -271,11 +385,11 @@ export class SyncManager {
     }
 
     // Prepare bills data for API
-    const billsData = [];
+    const billsData: SyncBillData[] = [];
     for (const bill of unsyncedBills) {
       try {
         // Format bill data for API
-        const apiData: any = {
+        const apiData: SyncBillData = {
           sync_uuid: bill.sync_uuid,
           bill_number: bill.bill_number,
           customer_name: bill.customer_name || "Walk-in Customer",
@@ -291,16 +405,23 @@ export class SyncManager {
             // Determine unit type
             const unitType = item.unitType === "count" ? "count" : "weight";
 
-            const formattedItem: any = {
+            const formattedItem: SyncItemData = {
               item_sync_uuid: item.syncUuid,
               unit_type: unitType,
-              quantity: parseInt(item.quantity || 1),
+              quantity: parseInt(item.quantity || "1"),
               weight_mode: item.weightMode || "normal",
+              original_weight: 0,
+              l_weight: 0,
+              reduced_weight: 0,
+              final_weight: 0,
+              price_per_kg: 0,
+              price_per_unit: 0,
+              amount: 0,
             };
 
             if (unitType === "weight") {
               // Calculate corrected weight values
-              const corrected = this.calculateCorrectedWeight(item);
+              const corrected = this.calculateCorrectedWeight(item as BillItemRow);
 
               formattedItem.original_weight = corrected.originalWeight;
               formattedItem.l_weight = corrected.lWeight;
@@ -329,7 +450,7 @@ export class SyncManager {
 
           // Recalculate total amount based on corrected item amounts
           const totalAmount = apiData.items.reduce(
-            (sum: number, item: any) => sum + item.amount,
+            (sum: number, item: SyncItemData) => sum + item.amount,
             0
           );
           apiData.total_amount = parseFloat(this.formatDecimal(totalAmount, 2));
@@ -349,7 +470,7 @@ export class SyncManager {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), this.apiTimeout);
 
-      const response = await fetch(`${this.apiBaseUrl}/api/sync-bill/`, {
+      const response = await fetch(`${SyncManager.apiBaseUrl}/api/sync-bill/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -370,7 +491,7 @@ export class SyncManager {
         `[SYNC] Raw response: ${responseText.substring(0, 500)}...`
       );
 
-      let responseData;
+      let responseData: SyncResponseData;
       try {
         responseData = JSON.parse(responseText);
       } catch (parseError) {
@@ -442,7 +563,7 @@ export class SyncManager {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-      const response = await fetch(`${this.apiBaseUrl}/api/sync-status/`, {
+      const response = await fetch(`${SyncManager.apiBaseUrl}/api/sync-status/`, {
         method: "GET",
         headers: {
           Accept: "application/json",
@@ -471,7 +592,7 @@ export class SyncManager {
   static async checkBillSyncStatus(billNumber: string): Promise<any> {
     try {
       const response = await fetch(
-        `${this.apiBaseUrl}/api/sync-status/${billNumber}/`,
+        `${SyncManager.apiBaseUrl}/api/sync-status/${billNumber}/`,
         {
           method: "GET",
           headers: {
@@ -510,8 +631,8 @@ export class SyncManager {
       const db = getDb();
       if (!db) return { synced: 0, failed: 0 };
 
-      const items = await db.getAllAsync("SELECT * FROM items");
-      const bottleTypes = await db.getAllAsync("SELECT * FROM bottle_types");
+      const items = await db.getAllAsync<ItemRow>("SELECT * FROM items");
+      const bottleTypes = await db.getAllAsync<BottleTypeRow>("SELECT * FROM bottle_types");
 
       let synced = 0;
       let failed = 0;
@@ -519,7 +640,7 @@ export class SyncManager {
       // Sync regular items
       for (const item of items) {
         try {
-          const response = await fetch(`${this.apiBaseUrl}/api/items/`, {
+          const response = await fetch(`${SyncManager.apiBaseUrl}/api/items/`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -547,7 +668,7 @@ export class SyncManager {
       // Sync bottle types
       for (const bottle of bottleTypes) {
         try {
-          const response = await fetch(`${this.apiBaseUrl}/api/bottle-types/`, {
+          const response = await fetch(`${SyncManager.apiBaseUrl}/api/bottle-types/`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
@@ -645,16 +766,16 @@ export class SyncManager {
   /**
    * Get sync status
    */
-  static async getSyncStatus() {
+  static async getSyncStatus(): Promise<SyncStatusResult> {
     const db = getDb();
-    if (!db) return { unsyncedBills: 0, unsyncedItems: 0 };
+    if (!db) return { unsyncedBills: 0, queueItems: 0 };
 
     try {
-      const billsResult = await db.getFirstAsync<{ count: number }>(
+      const billsResult = await db.getFirstAsync<CountResult>(
         "SELECT COUNT(*) as count FROM bills WHERE is_synced = 0"
       );
 
-      const queueResult = await db.getFirstAsync<{ count: number }>(
+      const queueResult = await db.getFirstAsync<CountResult>(
         "SELECT COUNT(*) as count FROM sync_queue"
       );
 
@@ -748,7 +869,7 @@ export class SyncManager {
         JSON.stringify(lTestBill, null, 2)
       );
 
-      const response = await fetch(`${this.apiBaseUrl}/api/sync-bill/`, {
+      const response = await fetch(`${SyncManager.apiBaseUrl}/api/sync-bill/`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -805,17 +926,8 @@ export class SyncManager {
   }
 }
 
-// Item sync functionality
-export interface ItemSyncResult {
-  success: boolean;
-  downloaded: number;
-  uploaded: number;
-  skipped: number;
-  message: string;
-}
-
 export class ItemSyncManager {
-  private static apiBaseUrl = SyncManager.apiBaseUrl;
+  static apiBaseUrl = SyncManager.apiBaseUrl; // Now it can access it since it's public
 
   /**
    * Sync items between local database and backend
@@ -856,7 +968,7 @@ export class ItemSyncManager {
       let skipped = 0;
 
       // First, upload all local items to backend for sync
-      let syncResponse: any = null;
+      let syncResponse: SyncResponseData | null = null;
       try {
         syncResponse = await this.syncItemsWithBackend(localItems);
         uploaded = syncResponse.stats?.uploaded_to_database || 0;
@@ -868,7 +980,7 @@ export class ItemSyncManager {
       }
 
       // Download items from backend
-      let backendItems: any[] = [];
+      let backendItems: BackendItem[] = [];
       if (syncResponse && syncResponse.items_to_download) {
         backendItems = syncResponse.items_to_download;
       } else {
@@ -916,7 +1028,7 @@ export class ItemSyncManager {
   /**
    * Sync all local items with backend
    */
-  private static async syncItemsWithBackend(localItems: any[]): Promise<any> {
+  private static async syncItemsWithBackend(localItems: ItemRow[]): Promise<SyncResponseData> {
     const deviceId = "mobile_app"; // Or get from device
 
     const response = await fetch(`${this.apiBaseUrl}/api/items/sync/`, {
@@ -947,12 +1059,12 @@ export class ItemSyncManager {
   /**
    * Get all local items
    */
-  private static async getLocalItems(): Promise<any[]> {
+  private static async getLocalItems(): Promise<ItemRow[]> {
     const db = getDb();
     if (!db) return [];
 
     try {
-      const results = await db.getAllAsync(`
+      const results = await db.getAllAsync<ItemRow>(`
         SELECT id, name, unit_type, sync_uuid, item_code, last_price_per_kg, last_price_per_unit
         FROM items
         ORDER BY name
@@ -965,7 +1077,7 @@ export class ItemSyncManager {
         error
       );
       try {
-        const results = await db.getAllAsync(`
+        const results = await db.getAllAsync<ItemRow>(`
           SELECT id, name, unit_type, sync_uuid, last_price_per_kg, last_price_per_unit
           FROM items
           ORDER BY name
@@ -985,12 +1097,15 @@ export class ItemSyncManager {
   /**
    * Download item from backend to local
    */
-  private static async downloadItem(backendItem: any): Promise<void> {
+  private static async downloadItem(backendItem: BackendItem): Promise<void> {
     const db = getDb();
     if (!db) return;
 
     // Generate UUID if not present
     const syncUuid = backendItem.sync_uuid || this.generateUUID();
+    
+    // Handle undefined values by providing defaults
+    const itemCode = backendItem.item_code || generateItemCode(backendItem.name);
 
     await db.runAsync(
       `
@@ -1002,7 +1117,7 @@ export class ItemSyncManager {
         backendItem.name,
         backendItem.unit_type || "weight",
         syncUuid,
-        backendItem.item_code,
+        itemCode, // Now guaranteed to be a string
         backendItem.last_price_per_kg || 0,
         backendItem.last_price_per_unit || 0,
       ]
@@ -1010,9 +1125,33 @@ export class ItemSyncManager {
   }
 
   /**
+   * Fetch items from backend
+   */
+  private static async fetchBackendItems(): Promise<BackendItem[]> {
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/api/items/`, {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch items: ${response.status}`);
+      }
+
+      const data = await response.json();
+      return data.items || [];
+    } catch (error) {
+      console.error("[ITEM_SYNC] Error fetching backend items:", error);
+      return [];
+    }
+  }
+
+  /**
    * Upload item from local to backend
    */
-  private static async uploadItem(localItem: any): Promise<any> {
+  private static async uploadItem(localItem: ItemRow): Promise<any> {
     // Generate UUID if not present
     if (!localItem.sync_uuid) {
       localItem.sync_uuid = this.generateUUID();
