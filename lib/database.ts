@@ -33,6 +33,7 @@ interface BillRow {
   customer_phone?: string;
   total_amount: number;
   date: string;
+  sync_uuid?: string;
 }
 
 interface BillNumberRow {
@@ -309,6 +310,27 @@ const addMissingColumns = async () => {
         "ALTER TABLE bills ADD COLUMN last_sync_attempt DATETIME"
       );
     }
+
+    // Check if sync_uuid column exists in bills table
+    const hasBillsSyncUuid = billsInfo.some(
+      (col) => col.name === "sync_uuid"
+    );
+
+    if (!hasBillsSyncUuid) {
+      console.log("[DB] Adding sync_uuid column to bills table");
+      await db.runAsync(
+        "ALTER TABLE bills ADD COLUMN sync_uuid TEXT"
+      );
+
+      // Populate sync_uuid for existing bills
+      console.log("[DB] Populating sync_uuid for existing bills");
+      const existingBills = await db.getAllAsync("SELECT id FROM bills WHERE sync_uuid IS NULL");
+      for (const bill of existingBills) {
+        const syncUuid = generateUUID();
+        await db.runAsync("UPDATE bills SET sync_uuid = ? WHERE id = ?", [syncUuid, bill.id]);
+      }
+      console.log(`[DB] Populated sync_uuid for ${existingBills.length} existing bills`);
+    }
   } catch (error) {
     console.error("[DB] Error adding missing columns:", error);
   }
@@ -387,20 +409,37 @@ export const addNewItem = async (
   const safeName = name.trim();
   if (!safeName) throw new Error("Item name cannot be empty");
 
-  const syncUuid = generateUUID();
-  const itemCode = generateItemCode(safeName);
+  // Check if item with same name already exists
+  const existing = await db.getFirstAsync("SELECT id FROM items WHERE name = ?", [safeName]);
+  if (existing) {
+    throw new Error("Item with this name already exists");
+  }
 
+  const syncUuid = generateUUID();
+
+  let result;
   if (unitType === "count") {
-    return await db.runAsync(
-      "INSERT INTO items (name, unit_type, last_price_per_unit, sync_uuid, item_code) VALUES (?, ?, ?, ?, ?)",
-      [safeName, unitType, price || 0, syncUuid, itemCode]
+    result = await db.runAsync(
+      "INSERT INTO items (name, unit_type, last_price_per_unit, sync_uuid) VALUES (?, ?, ?, ?)",
+      [safeName, unitType, price || 0, syncUuid]
     );
   } else {
-    return await db.runAsync(
-      "INSERT INTO items (name, unit_type, last_price_per_kg, sync_uuid, item_code) VALUES (?, ?, ?, ?, ?)",
-      [safeName, unitType, price || 0, syncUuid, itemCode]
+    result = await db.runAsync(
+      "INSERT INTO items (name, unit_type, last_price_per_kg, sync_uuid) VALUES (?, ?, ?, ?)",
+      [safeName, unitType, price || 0, syncUuid]
     );
   }
+
+  // Now generate item_code with the id
+  const itemCode = generateItemCode(safeName, result.lastInsertRowId);
+
+  // Update the item with item_code
+  await db.runAsync("UPDATE items SET item_code = ? WHERE id = ?", [
+    itemCode,
+    result.lastInsertRowId,
+  ]);
+
+  return result;
 };
 
 export const updateItemPrice = async (
@@ -543,21 +582,24 @@ export const getNextBillNumber = async (): Promise<string> => {
   const now = new Date();
   const dd = String(now.getDate()).padStart(2, "0");
   const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const prefix = `FAM${dd}${mm}`;
+  const yy = String(now.getFullYear()).slice(-2);
 
   // Get the last bill number for today
   const result = await db.getAllAsync<BillNumberRow>(
     "SELECT bill_number FROM bills WHERE bill_number LIKE ? ORDER BY bill_number DESC LIMIT 1",
-    [`${prefix}%`]
+    [`FAM${dd}${mm}${yy}%`]
   );
 
   let nextNum = 1;
   if (result.length > 0) {
-    const lastNum = parseInt(result[0].bill_number.slice(-4));
+    const lastBillNumber = result[0].bill_number;
+    // Extract the number part after the date prefix
+    const numPart = lastBillNumber.slice(9); // FAMDDMMYY has 9 characters
+    const lastNum = parseInt(numPart) || 0;
     nextNum = lastNum + 1;
   }
 
-  return `${prefix}${String(nextNum).padStart(4, "0")}`;
+  return `FAM${dd}${mm}${yy}${String(nextNum).padStart(4, "0")}`;
 };
 
 export const saveBill = async (billData: any) => {
@@ -566,19 +608,23 @@ export const saveBill = async (billData: any) => {
   const { billNumber, customerName, customerPhone, items } = billData;
   const weightReduction = await getWeightReduction(); // e.g., 0.1 for 10%
 
+  // Generate unique sync UUID for this bill
+  const syncUuid = generateUUID();
+
   // Compute total amount for the bill
   let totalAmount = 0;
 
   // Save bill header first (amount 0 for now, will update after items)
   const result = await db.runAsync(
-    `INSERT INTO bills (bill_number, customer_name, customer_phone, total_amount, date) 
-     VALUES (?, ?, ?, ?, ?)`,
+    `INSERT INTO bills (bill_number, customer_name, customer_phone, total_amount, date, sync_uuid) 
+     VALUES (?, ?, ?, ?, ?, ?)`,
     [
       billNumber,
       customerName || "Walk-in Customer",
       customerPhone || "",
       0,
       new Date().toISOString(),
+      syncUuid,
     ]
   );
 

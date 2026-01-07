@@ -329,12 +329,6 @@ export default function DashboardScreen() {
               <Icon name="check-circle" size={16} color="#28a745" />
               <Text style={styles.statusText}>Items: {stats.totalItems}</Text>
             </View>
-            <View style={styles.statusItem}>
-              <Icon name="check-circle" size={16} color="#28a745" />
-              <Text style={styles.statusText}>
-                Bottle Types: {stats.totalBottles}
-              </Text>
-            </View>
           </View>
         </View>
       </ScrollView>

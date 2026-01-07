@@ -958,6 +958,7 @@ const createStyles = (colors: any) =>
     },
     picker: {
       height: 50,
+      backgroundColor: colors.inputBackground,
     },
     helperText: {
       fontSize: 12,

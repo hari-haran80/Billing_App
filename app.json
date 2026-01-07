@@ -2,7 +2,7 @@
   "expo": {
     "name": "Billing_App",
     "slug": "Billing_App",
-    "version": "1.0.5",
+    "version": "1.0.6",
     "platforms": ["ios", "android"],
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
@@ -14,7 +14,7 @@
     },
     "android": {
       "package": "com.anonymous.Billing_App",
-      "versionCode": 6,
+      "versionCode": 7,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",

@@ -222,201 +222,6 @@ export class SyncManager {
   }
 
   /**
-   * Sync single bill to Django backend
-   */
-  private static async syncSingleBill(
-    bill: any
-  ): Promise<{ success: boolean; message: string }> {
-    try {
-      console.log(`[SYNC] Preparing to sync bill: ${bill.bill_number}`);
-
-      // Format bill data for API
-      const apiData: any = {
-        billNumber: bill.bill_number,
-        customerName: bill.customer_name || "Walk-in Customer",
-        customerPhone: bill.customer_phone || "",
-        totalAmount: parseFloat(this.formatDecimal(bill.total_amount, 2)),
-        date: bill.date || new Date().toISOString(),
-        items: [],
-      };
-
-      // Format items
-      if (bill.items && Array.isArray(bill.items)) {
-        apiData.items = bill.items.map((item: any) => {
-          // Determine unit type
-          const unitType = item.unitType === "count" ? "count" : "weight";
-
-          const formattedItem: any = {
-            itemName: item.itemName?.trim() || "Unknown Item",
-            unitType: unitType,
-            syncUuid: item.syncUuid,
-            quantity: parseInt(item.quantity || 1),
-            weightMode: item.weightMode || "normal",
-          };
-
-          if (unitType === "weight") {
-            // Calculate corrected weight values
-            const corrected = this.calculateCorrectedWeight(item);
-
-            formattedItem.originalWeight = corrected.originalWeight;
-            formattedItem.lWeight = corrected.lWeight;
-            formattedItem.reducedWeight = corrected.reducedWeight;
-            formattedItem.finalWeight = corrected.finalWeight;
-            formattedItem.pricePerKg = Number(
-              this.formatDecimal(item.pricePerKg, 2)
-            );
-            formattedItem.pricePerUnit = 0;
-            formattedItem.amount = corrected.amount;
-
-            // Update the total amount if needed
-            if (
-              Math.abs(formattedItem.amount - parseFloat(item.amount)) > 0.01
-            ) {
-              console.log(
-                `[SYNC] Corrected amount for ${formattedItem.itemName}: ${item.amount} -> ${formattedItem.amount}`
-              );
-            }
-
-            // Log weight mode for debugging
-            if (item.weightMode === "L") {
-              console.log(
-                `[SYNC] Item in L mode: Original=${formattedItem.originalWeight}, L=${formattedItem.lWeight}, Reduced=${formattedItem.reducedWeight}, Amount=${formattedItem.amount}`
-              );
-            } else {
-              console.log(
-                `[SYNC] Item in Normal mode: Original=${formattedItem.originalWeight}, Amount=${formattedItem.amount}`
-              );
-            }
-          } else {
-            formattedItem.originalWeight = 0;
-            formattedItem.lWeight = 0;
-            formattedItem.reducedWeight = 0;
-            formattedItem.finalWeight = 0;
-            formattedItem.pricePerKg = 0;
-            formattedItem.pricePerUnit = parseFloat(
-              this.formatDecimal(item.pricePerUnit, 2)
-            );
-            formattedItem.amount =
-              formattedItem.quantity * formattedItem.pricePerUnit;
-          }
-
-          return formattedItem;
-        });
-
-        // Recalculate total amount based on corrected item amounts
-        const totalAmount = apiData.items.reduce(
-          (sum: number, item: any) => sum + item.amount,
-          0
-        );
-        apiData.totalAmount = parseFloat(this.formatDecimal(totalAmount, 2));
-      }
-
-      // Validate the data
-      const validation = this.validateBillData({
-        bill_number: apiData.billNumber,
-        total_amount: apiData.totalAmount,
-        items: apiData.items,
-      });
-
-      if (!validation.isValid) {
-        console.error(
-          `[SYNC] Validation failed for bill ${bill.bill_number}:`,
-          validation.errors
-        );
-        return {
-          success: false,
-          message: `Validation failed: ${validation.errors.join(", ")}`,
-        };
-      }
-
-      console.log(`[SYNC] Sending bill ${bill.bill_number} to backend...`);
-
-      // Make API call with timeout
-      const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), this.apiTimeout);
-
-      try {
-        const response = await fetch(`${this.apiBaseUrl}/api/sync-bill/`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "application/json",
-          },
-          body: JSON.stringify(apiData),
-          signal: controller.signal,
-        });
-        clearTimeout(timeoutId);
-
-        console.log(`[SYNC] Response status: ${response.status}`);
-
-        const responseText = await response.text();
-        console.log(
-          `[SYNC] Raw response: ${responseText.substring(0, 500)}...`
-        );
-
-        let responseData;
-        try {
-          responseData = JSON.parse(responseText);
-        } catch (parseError) {
-          console.error("[SYNC] Failed to parse JSON response:", parseError);
-          responseData = {
-            success: false,
-            error: "Invalid response format from server",
-            details: responseText,
-          };
-        }
-
-        if (response.ok && responseData.success) {
-          console.log(`[SYNC] Successfully synced bill ${bill.bill_number}`);
-          return {
-            success: true,
-            message: responseData.message || "Bill synced successfully",
-          };
-        } else {
-          console.error(
-            `[SYNC] API error for bill ${bill.bill_number}:`,
-            responseData
-          );
-          return {
-            success: false,
-            message:
-              responseData.error ||
-              `HTTP ${response.status}: ${response.statusText}`,
-          };
-        }
-      } catch (fetchError: any) {
-        clearTimeout(timeoutId);
-
-        if (fetchError.name === "AbortError") {
-          console.error(`[SYNC] Request timeout for bill ${bill.bill_number}`);
-          return {
-            success: false,
-            message: "Request timeout - server took too long to respond",
-          };
-        }
-
-        console.error(
-          `[SYNC] Network error for bill ${bill.bill_number}:`,
-          fetchError
-        );
-        return {
-          success: false,
-          message: `Network error: ${fetchError.message}`,
-        };
-      }
-    } catch (error: any) {
-      console.error(
-        `[SYNC] Unexpected error syncing bill ${bill.bill_number}:`,
-        error
-      );
-      return {
-        success: false,
-        message: `Unexpected error: ${error.message}`,
-      };
-    }
-  }
-
-  /**
    * Sync bills to Django backend
    */
   static async syncBills(): Promise<SyncResult> {
@@ -465,78 +270,166 @@ export class SyncManager {
       };
     }
 
-    let syncedCount = 0;
-    let failedCount = 0;
-    let totalItemsSynced = 0;
-    const errors: string[] = [];
-
-    // Sync each bill
+    // Prepare bills data for API
+    const billsData = [];
     for (const bill of unsyncedBills) {
       try {
-        const result = await this.syncSingleBill(bill);
+        // Format bill data for API
+        const apiData: any = {
+          sync_uuid: bill.sync_uuid,
+          bill_number: bill.bill_number,
+          customer_name: bill.customer_name || "Walk-in Customer",
+          customer_phone: bill.customer_phone || "",
+          total_amount: parseFloat(this.formatDecimal(bill.total_amount, 2)),
+          date: bill.date || new Date().toISOString(),
+          items: [],
+        };
 
-        if (result.success) {
-          // Mark bill as synced in local database
-          const db = getDb();
-          if (db) {
+        // Format items
+        if (bill.items && Array.isArray(bill.items)) {
+          apiData.items = bill.items.map((item: any) => {
+            // Determine unit type
+            const unitType = item.unitType === "count" ? "count" : "weight";
+
+            const formattedItem: any = {
+              item_sync_uuid: item.syncUuid,
+              unit_type: unitType,
+              quantity: parseInt(item.quantity || 1),
+              weight_mode: item.weightMode || "normal",
+            };
+
+            if (unitType === "weight") {
+              // Calculate corrected weight values
+              const corrected = this.calculateCorrectedWeight(item);
+
+              formattedItem.original_weight = corrected.originalWeight;
+              formattedItem.l_weight = corrected.lWeight;
+              formattedItem.reduced_weight = corrected.reducedWeight;
+              formattedItem.final_weight = corrected.finalWeight;
+              formattedItem.price_per_kg = Number(
+                this.formatDecimal(item.pricePerKg, 2)
+              );
+              formattedItem.price_per_unit = 0;
+              formattedItem.amount = corrected.amount;
+            } else {
+              formattedItem.original_weight = 0;
+              formattedItem.l_weight = 0;
+              formattedItem.reduced_weight = 0;
+              formattedItem.final_weight = 0;
+              formattedItem.price_per_kg = 0;
+              formattedItem.price_per_unit = parseFloat(
+                this.formatDecimal(item.pricePerUnit, 2)
+              );
+              formattedItem.amount =
+                formattedItem.quantity * formattedItem.price_per_unit;
+            }
+
+            return formattedItem;
+          });
+
+          // Recalculate total amount based on corrected item amounts
+          const totalAmount = apiData.items.reduce(
+            (sum: number, item: any) => sum + item.amount,
+            0
+          );
+          apiData.total_amount = parseFloat(this.formatDecimal(totalAmount, 2));
+        }
+
+        billsData.push(apiData);
+      } catch (error: any) {
+        console.error(`[SYNC] Error preparing bill ${bill.bill_number}:`, error);
+        continue;
+      }
+    }
+
+    // Send all bills in one API call
+    try {
+      console.log(`[SYNC] Sending ${billsData.length} bills to backend...`);
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), this.apiTimeout);
+
+      const response = await fetch(`${this.apiBaseUrl}/api/sync-bill/`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          device_id: "mobile_app", // Could be made dynamic later
+          bills: billsData
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+
+      console.log(`[SYNC] Response status: ${response.status}`);
+
+      const responseText = await response.text();
+      console.log(
+        `[SYNC] Raw response: ${responseText.substring(0, 500)}...`
+      );
+
+      let responseData;
+      try {
+        responseData = JSON.parse(responseText);
+      } catch (parseError) {
+        console.error("[SYNC] Failed to parse JSON response:", parseError);
+        return {
+          success: false,
+          syncedBills: 0,
+          failedBills: unsyncedBills.length,
+          syncedItems: 0,
+          failedItems: 0,
+          message: "Invalid response format from server",
+        };
+      }
+
+      if (response.ok && responseData.success) {
+        // Mark all bills as synced
+        const db = getDb();
+        if (db) {
+          for (const bill of unsyncedBills) {
             await db.runAsync(
               "UPDATE bills SET is_synced = 1, sync_attempts = 0, last_sync_attempt = CURRENT_TIMESTAMP WHERE id = ?",
               [bill.id]
             );
-
-            // Remove from sync queue if exists
-            await db.runAsync("DELETE FROM sync_queue WHERE bill_id = ?", [
-              bill.id,
-            ]);
           }
-
-          syncedCount++;
-          totalItemsSynced += bill.items?.length || 0;
-          console.log(`[SYNC] ✓ Bill ${bill.bill_number} synced successfully`);
-        } else {
-          // Increment sync attempts
-          const db = getDb();
-          if (db) {
-            await db.runAsync(
-              "UPDATE bills SET sync_attempts = sync_attempts + 1, last_sync_attempt = CURRENT_TIMESTAMP WHERE id = ?",
-              [bill.id]
-            );
-          }
-
-          failedCount++;
-          errors.push(`Bill ${bill.bill_number}: ${result.message}`);
-          console.error(
-            `[SYNC] ✗ Failed to sync bill ${bill.bill_number}: ${result.message}`
-          );
         }
-      } catch (error: any) {
-        console.error(
-          `[SYNC] Error processing bill ${bill.bill_number}:`,
-          error
-        );
-        failedCount++;
-        errors.push(`Bill ${bill.bill_number}: ${error.message}`);
+
+        const totalItemsSynced = billsData.reduce((sum, bill) => sum + (bill.items?.length || 0), 0);
+
+        console.log(`[SYNC] Successfully synced ${billsData.length} bills`);
+        return {
+          success: true,
+          syncedBills: billsData.length,
+          failedBills: 0,
+          syncedItems: totalItemsSynced,
+          failedItems: 0,
+          message: responseData.message || "Bills synced successfully",
+        };
+      } else {
+        console.error(`[SYNC] API error:`, responseData);
+        return {
+          success: false,
+          syncedBills: 0,
+          failedBills: unsyncedBills.length,
+          syncedItems: 0,
+          failedItems: 0,
+          message: responseData.error || `HTTP ${response.status}: ${response.statusText}`,
+        };
       }
+    } catch (error: any) {
+      console.error(`[SYNC] Network error:`, error);
+      return {
+        success: false,
+        syncedBills: 0,
+        failedBills: unsyncedBills.length,
+        syncedItems: 0,
+        failedItems: 0,
+        message: `Network error: ${error.message}`,
+      };
     }
-
-    // Create result message
-    let message: string;
-    if (syncedCount > 0 && failedCount === 0) {
-      message = `Successfully synced ${syncedCount} bill(s) with ${totalItemsSynced} item(s).`;
-    } else if (syncedCount > 0 && failedCount > 0) {
-      message = `Synced ${syncedCount} bill(s), failed ${failedCount} bill(s). Errors: ${errors.join("; ")}`;
-    } else {
-      message = `Failed to sync ${failedCount} bill(s). Errors: ${errors.join("; ")}`;
-    }
-
-    return {
-      success: syncedCount > 0,
-      syncedBills: syncedCount,
-      failedBills: failedCount,
-      syncedItems: totalItemsSynced,
-      failedItems: 0,
-      message,
-    };
   }
 
   /**
