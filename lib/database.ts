@@ -416,10 +416,16 @@ export const updateWeightReduction = async (reduction: number) => {
 // Item Management Functions
 export const getAllItems = async () => {
   if (!db) throw new Error("Database not initialized");
-  return await db.getAllAsync<ItemRow>(`
+  try {
+    const result = await db.getAllAsync<ItemRow>(`
     SELECT * FROM items 
     ORDER BY name ASC
   `);
+    return result || [];
+  } catch (error) {
+    console.error("Error getting all items:", error);
+    return [];
+  }
 };
 
 export const getBottleTypes = async () => {

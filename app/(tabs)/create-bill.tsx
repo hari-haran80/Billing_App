@@ -1,8 +1,6 @@
-// app/create-bill.tsx - COMPLETELY UPDATED WITH PRINTING
 import { useTheme } from "@/constants/ThemeContext";
-import { Picker } from "@react-native-picker/picker";
 import * as Print from "expo-print";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
@@ -19,6 +17,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import BillItemRow from "../../components/bill/BillItemRow";
+import { SelectionModal } from "../../components/common/SelectionModal";
 import {
   addNewItem,
   getAllItems,
@@ -58,6 +57,7 @@ export default function CreateBillScreen() {
   const [totalAmount, setTotalAmount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [showNewItemModal, setShowNewItemModal] = useState(false);
+  const [showUnitTypeModal, setShowUnitTypeModal] = useState(false);
   const [newItemName, setNewItemName] = useState("");
   const [newItemPrice, setNewItemPrice] = useState("");
   const [newItemUnitType, setNewItemUnitType] = useState<"weight" | "count">(
@@ -69,6 +69,14 @@ export default function CreateBillScreen() {
     "normal"
   );
   const [weightReduction, setWeightReduction] = useState(0.1);
+  const isMounted = useRef(true);
+
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let intervalId: number;
@@ -124,13 +132,21 @@ export default function CreateBillScreen() {
     try {
       const items = await getAllItems();
       const reduction = await getWeightReduction();
-      setAvailableItems(items || []);
-      setWeightReduction(reduction);
-      setLoading(false);
+
+      if (isMounted.current) {
+        if (!items) {
+          console.warn("getAllItems returned null/undefined");
+        }
+        setAvailableItems(items || []);
+        setWeightReduction(reduction);
+        setLoading(false);
+      }
     } catch (error) {
       console.error("Error loading items:", error);
-      setLoading(false);
-      Alert.alert("Error", "Failed to load items. Please restart the app.");
+      if (isMounted.current) {
+        setLoading(false);
+        Alert.alert("Error", "Failed to load items. Please restart the app.");
+      }
     }
   };
 
@@ -289,9 +305,9 @@ export default function CreateBillScreen() {
             weight:
               item.unitType === "weight"
                 ? item.weights.reduce(
-                    (sum, w) => sum + (parseFloat(w.weight) || 0),
-                    0
-                  )
+                  (sum, w) => sum + (parseFloat(w.weight) || 0),
+                  0
+                )
                 : 0,
             quantity: parseInt(item.quantity) || 1,
             weightMode: item.weights[0]?.weightMode || "normal",
@@ -444,7 +460,7 @@ export default function CreateBillScreen() {
     );
   };
 
-  const styles = createStyles(colors);
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   if (loading) {
     return (
@@ -507,7 +523,7 @@ export default function CreateBillScreen() {
                   style={[
                     styles.weightModeText,
                     selectedWeightMode === "normal" &&
-                      styles.weightModeTextActive,
+                    styles.weightModeTextActive,
                   ]}
                 >
                   Normal Mode
@@ -697,25 +713,27 @@ export default function CreateBillScreen() {
                 <Text style={[styles.modalLabel, { color: colors.text }]}>
                   Item Type
                 </Text>
-                <View style={[styles.pickerContainer, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}>
-                  <Picker
-                    selectedValue={newItemUnitType}
-                    onValueChange={(value) => setNewItemUnitType(value)}
-                    style={[styles.picker, { color: colors.text, backgroundColor: colors.inputBackground }]}
-                    dropdownIconColor={colors.textSecondary}
-                  >
-                    <Picker.Item
-                      label="Weight (kg)"
-                      value="weight"
-                      color={colors.text}
-                    />
-                    <Picker.Item
-                      label="Count (pieces)"
-                      value="count"
-                      color={colors.text}
-                    />
-                  </Picker>
-                </View>
+                <TouchableOpacity
+                  style={[styles.dropdownButton, { backgroundColor: colors.inputBackground, borderColor: colors.border }]}
+                  onPress={() => setShowUnitTypeModal(true)}
+                >
+                  <Text style={[styles.dropdownText, { color: colors.text }]}>
+                    {newItemUnitType === "weight" ? "Weight (kg)" : "Count (pieces)"}
+                  </Text>
+                  <Icon name="arrow-drop-down" size={24} color={colors.textSecondary} />
+                </TouchableOpacity>
+
+                <SelectionModal
+                  visible={showUnitTypeModal}
+                  onClose={() => setShowUnitTypeModal(false)}
+                  onSelect={setNewItemUnitType}
+                  title="Select Unit Type"
+                  items={[
+                    { label: "Weight (kg)", value: "weight" },
+                    { label: "Count (pieces)", value: "count" },
+                  ]}
+                  selectedValue={newItemUnitType}
+                />
               </View>
 
               <View style={styles.modalInputContainer}>
@@ -783,6 +801,19 @@ const createStyles = (colors: any) =>
       flex: 1,
     },
     keyboardView: {
+      flex: 1,
+    },
+    dropdownButton: {
+      borderWidth: 1,
+      borderRadius: 8,
+      height: 50,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 12,
+    },
+    dropdownText: {
+      fontSize: 16,
       flex: 1,
     },
     scrollView: {

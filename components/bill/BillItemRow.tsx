@@ -1,7 +1,6 @@
-// components/bill/BillItemRow.tsx - UPDATED
+// components/bill/BillItemRow.tsx - UPDATED: REPLACED PICKER WITH SELECTION MODAL
 import { useTheme } from "@/constants/ThemeContext";
-import { Picker } from "@react-native-picker/picker";
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
 import {
     StyleSheet,
     Text,
@@ -10,6 +9,7 @@ import {
     View,
 } from "react-native";
 import Icon from "react-native-vector-icons/MaterialIcons";
+import { SelectionModal } from "../common/SelectionModal";
 
 interface BillItemRowProps {
   index: number;
@@ -31,6 +31,8 @@ const BillItemRow = React.memo(({
   onRemove,
 }: BillItemRowProps) => {
   const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const [isItemModalVisible, setIsItemModalVisible] = useState(false);
 
   const handleQuantityChange = (value: string) => {
     onUpdate({ quantity: value });
@@ -78,10 +80,24 @@ const BillItemRow = React.memo(({
     onUpdate({ price: value });
   };
 
-  const styles = createStyles(colors);
+  // Safe-guard availableItems
+  const filteredItems = Array.isArray(availableItems) ? availableItems : [];
 
-  // Show all available items
-  const filteredItems = availableItems;
+  // Prepare items for modal
+  const selectionItems = useMemo(() => {
+    return filteredItems.map(avItem => ({
+      label: avItem.name,
+      value: avItem.id,
+      subtitle: avItem.unit_type === "count" ? `₹${avItem.last_price_per_unit || 0}/each` : `₹${avItem.last_price_per_kg || 0}/kg`
+    }));
+  }, [filteredItems]);
+
+  const selectedItemLabel = useMemo(() => {
+    if (!item.itemId) return "Select item";
+    const selected = filteredItems.find(i => i.id === item.itemId);
+    if (!selected) return "Unknown Item";
+    return `${selected.name} - ${selected.unit_type === "count" ? "₹" + (selected.last_price_per_unit || 0) + "/each" : "₹" + (selected.last_price_per_kg || 0) + "/kg"}`;
+  }, [item.itemId, filteredItems]);
 
   try {
     return (
@@ -102,28 +118,25 @@ const BillItemRow = React.memo(({
       {/* Item Selection */}
       <View style={styles.section}>
         <Text style={styles.label}>Item</Text>
-        <View style={styles.pickerContainer}>
-          <Picker
-            selectedValue={item.itemId}
-            onValueChange={onItemSelect}
-            style={[styles.picker, { color: colors.text }]}
-            dropdownIconColor={colors.textSecondary}
-          >
-            <Picker.Item
-              label="Select item"
-              value={null}
-              color={colors.textSecondary}
-            />
-            {filteredItems.map((avItem) => (
-              <Picker.Item
-                key={avItem.id}
-                label={`${avItem.name} - ${avItem.unit_type === "count" ? "₹" + (avItem.last_price_per_unit || 0) + "/each" : "₹" + (avItem.last_price_per_kg || 0) + "/kg"}`}
-                value={avItem.id}
-                color={colors.text}
-              />
-            ))}
-          </Picker>
-        </View>
+        <TouchableOpacity 
+          style={styles.dropdownButton}
+          onPress={() => setIsItemModalVisible(true)}
+        >
+          <Text style={[styles.dropdownText, !item.itemId && styles.placeholderText]}>
+            {selectedItemLabel}
+          </Text>
+          <Icon name="arrow-drop-down" size={24} color={colors.textSecondary} />
+        </TouchableOpacity>
+
+        <SelectionModal
+          visible={isItemModalVisible}
+          onClose={() => setIsItemModalVisible(false)}
+          onSelect={onItemSelect}
+          title="Select Item"
+          items={selectionItems}
+          searchable={true}
+          selectedValue={item.itemId}
+        />
       </View>
 
       {/* Input based on item type */}
@@ -308,7 +321,7 @@ const BillItemRow = React.memo(({
                 ]}
               >
                 <Text style={[styles.amountText, { color: colors.text }]}>
-                  ₹{item.amount.toFixed(2)}
+                  ₹{(item.amount || 0).toFixed(2)}
                 </Text>
               </View>
             </View>
@@ -321,7 +334,10 @@ const BillItemRow = React.memo(({
     console.error('Error rendering BillItemRow:', error);
     return (
       <View style={styles.container}>
-        <Text style={{ color: 'red' }}>Error rendering item</Text>
+        <Text style={{ color: colors.danger }}>Error rendering item</Text>
+        <TouchableOpacity onPress={onRemove} style={styles.deleteButton}>
+          <Icon name="close" size={22} color={colors.danger} />
+        </TouchableOpacity>
       </View>
     );
   }
@@ -393,18 +409,24 @@ const createStyles = (colors: any) =>
       color: colors.text,
       marginBottom: 8,
     },
-    pickerContainer: {
+    dropdownButton: {
       backgroundColor: colors.inputBackground,
       borderWidth: 1,
       borderColor: colors.border,
       borderRadius: 8,
-      overflow: "hidden",
-      minHeight: 50,
-    },
-    picker: {
       height: 50,
-      backgroundColor: colors.inputBackground,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 12,
+    },
+    dropdownText: {
+      fontSize: 16,
       color: colors.text,
+      flex: 1,
+    },
+    placeholderText: {
+      color: colors.textSecondary,
     },
     inputRow: {
       flexDirection: "row",

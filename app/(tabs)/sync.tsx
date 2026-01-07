@@ -179,9 +179,14 @@ export default function SyncScreen() {
       } else {
         setBackendStatus("offline");
       }
-    } catch (error) {
-      console.error("Backend check error:", error);
-      setBackendStatus("offline");
+    } catch (error: any) {
+      if (error.name === 'AbortError' || error.message?.includes('Aborted')) {
+        // Just set offline, no need to log error for timeout
+        setBackendStatus("offline");
+      } else {
+        console.log("Backend check failed:", error.message);
+        setBackendStatus("offline");
+      }
     }
   };
 
@@ -293,8 +298,12 @@ export default function SyncScreen() {
         `Status: ${response.status}\n${responseText.substring(0, 200)}`
       );
     } catch (error: any) {
-      console.error("Test error:", error);
-      Alert.alert("❌ Test Error", error.message);
+      if (error.name === 'AbortError' || error.message?.includes('Aborted')) {
+        Alert.alert("❌ Test Error", "Request timed out. Server is not responding.");
+      } else {
+        console.error("Test error:", error);
+        Alert.alert("❌ Test Error", error.message);
+      }
     }
   };
 
@@ -349,9 +358,14 @@ export default function SyncScreen() {
         return false;
       }
     } catch (error: any) {
+      let errorMessage = error.message;
+      if (error.name === 'AbortError' || error.message?.includes('Aborted')) {
+        errorMessage = "Request timed out. Server is not responding.";
+      }
+      
       Alert.alert(
         "❌ Connection Failed",
-        `Failed to connect to ${url}\n\nError: ${error.message}`
+        `Failed to connect to ${url}\n\nError: ${errorMessage}`
       );
       return false;
     } finally {
