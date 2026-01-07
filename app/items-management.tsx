@@ -6,6 +6,7 @@ import {
   getAllItems,
   updateItemPrice,
 } from "@/lib/database";
+import { ItemSyncManager } from "@/lib/syncManager";
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -29,6 +30,7 @@ export default function ItemsManagementScreen() {
     "weight"
   );
   const [loading, setLoading] = useState(true);
+  const [syncLoading, setSyncLoading] = useState(false);
 
   // Bulk selection states
   const [selectedItemIds, setSelectedItemIds] = useState<number[]>([]);
@@ -48,6 +50,27 @@ export default function ItemsManagementScreen() {
     } catch (error) {
       console.error("Error loading data:", error);
       setLoading(false);
+    }
+  };
+
+  const handleSyncItems = async () => {
+    setSyncLoading(true);
+    try {
+      const result = await ItemSyncManager.syncItems();
+      if (result.success) {
+        Alert.alert(
+          "Sync Complete",
+          `Downloaded: ${result.downloaded}\nUploaded: ${result.uploaded}\nSkipped: ${result.skipped}`,
+          [{ text: "OK", onPress: loadData }]
+        );
+      } else {
+        Alert.alert("Sync Failed", result.message);
+      }
+    } catch (error) {
+      console.error("Sync error:", error);
+      Alert.alert("Sync Failed", "An unexpected error occurred");
+    } finally {
+      setSyncLoading(false);
     }
   };
 
@@ -375,6 +398,22 @@ export default function ItemsManagementScreen() {
         <Text style={styles.addButtonText}>Add New Item</Text>
       </TouchableOpacity>
 
+      {/* Sync Button */}
+      <TouchableOpacity
+        style={[styles.addButton, styles.syncButton]}
+        onPress={handleSyncItems}
+        disabled={syncLoading}
+      >
+        <Icon
+          name={syncLoading ? "sync" : "sync-alt"}
+          size={24}
+          color="white"
+        />
+        <Text style={styles.addButtonText}>
+          {syncLoading ? "Syncing..." : "Sync & Download"}
+        </Text>
+      </TouchableOpacity>
+
       {/* Content */}
       <FlatList
         data={items}
@@ -585,6 +624,9 @@ const styles = StyleSheet.create({
   },
   addItemButton: {
     backgroundColor: "#28a745",
+  },
+  syncButton: {
+    backgroundColor: "#007bff",
   },
   addButtonText: {
     color: "white",

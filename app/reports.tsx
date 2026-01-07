@@ -5,13 +5,13 @@ import * as FileSystem from "expo-file-system/legacy";
 import * as Sharing from "expo-sharing";
 import { useEffect, useState } from "react";
 import {
-  Alert,
-  FlatList,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    Alert,
+    FlatList,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -262,7 +262,7 @@ export default function ReportsScreen() {
           <View style={styles.billDetailItem}>
             <Icon name="calendar-today" size={14} color="#6c757d" />
             <Text style={styles.billDetailText}>
-              {new Date(item.date).toLocaleDateString("en-IN")}
+              {new Date(item.date).toLocaleDateString("ta-IN")}
             </Text>
           </View>
 

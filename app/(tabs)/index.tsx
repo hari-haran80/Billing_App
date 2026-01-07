@@ -1,20 +1,20 @@
 // app/index.tsx - UPDATED DASHBOARD
 import {
-  getAllBills,
-  getAllItems,
-  getBottleTypes,
-  isDbInitialized,
+    getAllBills,
+    getAllItems,
+    getBottleTypes,
+    isDbInitialized,
 } from "@/lib/database";
 import { Link, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    RefreshControl,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -296,7 +296,7 @@ export default function DashboardScreen() {
                         ₹{bill.total_amount.toFixed(2)}
                       </Text>
                       <Text style={styles.recentDate}>
-                        {new Date(bill.date).toLocaleDateString()}
+                        {new Date(bill.date).toLocaleDateString("ta-IN")}
                       </Text>
                     </View>
                   </TouchableOpacity>

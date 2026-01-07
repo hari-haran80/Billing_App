@@ -255,7 +255,7 @@ export default function HistoryScreen() {
           <View style={styles.billDetailItem}>
             <Icon name="calendar-today" size={16} color="#6c757d" />
             <Text style={styles.billDetailText}>
-              {new Date(item.date).toLocaleDateString()}
+              {new Date(item.date).toLocaleDateString("ta-IN")}
             </Text>
           </View>
 

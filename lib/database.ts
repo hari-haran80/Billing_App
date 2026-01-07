@@ -18,6 +18,8 @@ interface ItemRow {
   id: number;
   name: string;
   unit_type: "weight" | "count";
+  sync_uuid?: string;
+  item_code?: string;
 }
 
 interface BottleRow {
@@ -64,6 +66,8 @@ export const initDatabase = async () => {
         unit_type TEXT DEFAULT 'weight',
         last_price_per_kg REAL DEFAULT 0,
         last_price_per_unit REAL DEFAULT 0,
+        sync_uuid TEXT UNIQUE,
+        item_code TEXT UNIQUE,
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP
       )
     `);
@@ -141,11 +145,11 @@ export const initDatabase = async () => {
     `);
     console.log("[DB] Default settings inserted");
 
-    // Add missing columns if they don't exist
-    await addMissingColumns();
-
     isInitialized = true;
     console.log("[DB] Database initialized successfully");
+
+    // Add missing columns if they don't exist (run every time)
+    await addMissingColumns();
   } catch (error) {
     console.error("[DB] Error initializing database:", error);
     // Reset db on error
@@ -172,6 +176,52 @@ const addMissingColumns = async () => {
       await db.runAsync(
         "ALTER TABLE items ADD COLUMN last_price_per_unit REAL DEFAULT 0"
       );
+    }
+
+    // Check if sync_uuid column exists in items table
+    const hasSyncUuid = tableInfo.some((col) => col.name === "sync_uuid");
+
+    if (!hasSyncUuid) {
+      console.log("[DB] Adding sync_uuid column to items table");
+      await db.runAsync("ALTER TABLE items ADD COLUMN sync_uuid TEXT UNIQUE");
+    }
+
+    // Check if item_code column exists in items table
+    const hasItemCode = tableInfo.some((col) => col.name === "item_code");
+
+    if (!hasItemCode) {
+      try {
+        console.log("[DB] Adding item_code column to items table");
+        await db.runAsync("ALTER TABLE items ADD COLUMN item_code TEXT");
+
+        // Populate item_code for existing items
+        console.log("[DB] Populating item_code for existing items");
+        const existingItems = await db.getAllAsync(
+          "SELECT id, name FROM items WHERE item_code IS NULL"
+        );
+        for (const item of existingItems) {
+          const itemCode = generateItemCode(item.name, item.id);
+          await db.runAsync("UPDATE items SET item_code = ? WHERE id = ?", [
+            itemCode,
+            item.id,
+          ]);
+        }
+
+        // Add UNIQUE constraint separately
+        try {
+          await db.runAsync(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_items_item_code ON items(item_code)"
+          );
+          console.log("[DB] Added unique index on item_code");
+        } catch (indexError) {
+          console.warn(
+            "[DB] Could not add unique index on item_code:",
+            indexError
+          );
+        }
+      } catch (error) {
+        console.error("[DB] Error adding item_code column:", error);
+      }
     }
 
     // Check if price_per_unit column exists in bill_items table
@@ -337,15 +387,18 @@ export const addNewItem = async (
   const safeName = name.trim();
   if (!safeName) throw new Error("Item name cannot be empty");
 
+  const syncUuid = generateUUID();
+  const itemCode = generateItemCode(safeName);
+
   if (unitType === "count") {
     return await db.runAsync(
-      "INSERT INTO items (name, unit_type, last_price_per_unit) VALUES (?, ?, ?)",
-      [safeName, unitType, price || 0]
+      "INSERT INTO items (name, unit_type, last_price_per_unit, sync_uuid, item_code) VALUES (?, ?, ?, ?, ?)",
+      [safeName, unitType, price || 0, syncUuid, itemCode]
     );
   } else {
     return await db.runAsync(
-      "INSERT INTO items (name, unit_type, last_price_per_kg) VALUES (?, ?, ?)",
-      [safeName, unitType, price || 0]
+      "INSERT INTO items (name, unit_type, last_price_per_kg, sync_uuid, item_code) VALUES (?, ?, ?, ?, ?)",
+      [safeName, unitType, price || 0, syncUuid, itemCode]
     );
   }
 };
@@ -479,9 +532,15 @@ export const saveBill = async (billData: any) => {
 
   // Save bill header first (amount 0 for now, will update after items)
   const result = await db.runAsync(
-    `INSERT INTO bills (bill_number, customer_name, customer_phone, total_amount) 
-     VALUES (?, ?, ?, ?)`,
-    [billNumber, customerName || "Walk-in Customer", customerPhone || "", 0]
+    `INSERT INTO bills (bill_number, customer_name, customer_phone, total_amount, date) 
+     VALUES (?, ?, ?, ?, ?)`,
+    [
+      billNumber,
+      customerName || "Walk-in Customer",
+      customerPhone || "",
+      0,
+      new Date().toISOString(),
+    ]
   );
 
   const billId = result.lastInsertRowId;
@@ -669,11 +728,38 @@ export const addBottleType = async (
 
   // Add to items table
   await db.runAsync(
-    "INSERT OR REPLACE INTO items (name, unit_type, last_price_per_unit) VALUES (?, ?, ?)",
-    [safeName, "count", price || 0]
+    "INSERT OR REPLACE INTO items (name, unit_type, last_price_per_unit, sync_uuid, item_code) VALUES (?, ?, ?, ?, ?)",
+    [
+      safeName,
+      "count",
+      price || 0,
+      generateUUID(),
+      generateItemCode(safeDisplayName),
+    ]
   );
 
   return safeName;
+};
+
+// Generate item code from name
+const generateItemCode = (name: string, id?: number): string => {
+  const baseCode = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .substring(0, 8);
+  if (id) {
+    return `${baseCode}${id}`.substring(0, 10);
+  }
+  return baseCode.substring(0, 10);
+};
+
+// Generate a simple UUID
+const generateUUID = (): string => {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c == "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 };
 
 export const getDb = () => db;

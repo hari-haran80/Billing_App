@@ -2,28 +2,28 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
 import React, { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  Dimensions,
-  KeyboardAvoidingView,
-  Modal,
-  Platform,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Text,
-  TextInput,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    Dimensions,
+    KeyboardAvoidingView,
+    Modal,
+    Platform,
+    ScrollView,
+    StatusBar,
+    StyleSheet,
+    Text,
+    TextInput,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { getDb } from "../../lib/database";
 import {
-  SyncManager,
-  SyncResult,
-  getApiBaseUrl,
-  setApiBaseUrl,
+    SyncManager,
+    SyncResult,
+    getApiBaseUrl,
+    setApiBaseUrl,
 } from "../../lib/syncManager";
 
 const { width } = Dimensions.get("window");
@@ -1236,11 +1236,7 @@ const styles = StyleSheet.create({
     shadowRadius: 2,
     elevation: 1,
   },
-  statLabel: {
-    fontSize: 14,
-    color: "#6b7280",
-    marginBottom: 8,
-  },
+
   statValueSuccess: {
     fontSize: 28,
     fontWeight: "bold",

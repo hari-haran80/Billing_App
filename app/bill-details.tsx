@@ -216,8 +216,8 @@ export default function BillDetailsScreen() {
           <View style={styles.dateSection}>
             <Icon name="calendar-today" size={18} color="#6c757d" />
             <Text style={styles.dateText}>
-              {new Date(bill.date).toLocaleDateString()} •{" "}
-              {new Date(bill.date).toLocaleTimeString()}
+              {new Date(bill.date).toLocaleDateString("ta-IN")} •{" "}
+              {new Date(bill.date).toLocaleTimeString("en-IN")}
             </Text>
           </View>
 

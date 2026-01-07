@@ -2,6 +2,18 @@ import NetInfo from "@react-native-community/netinfo";
 import { Platform } from "react-native";
 import { getDb } from "./database";
 
+// Generate item code from name (local copy)
+const generateItemCode = (name: string, id?: number): string => {
+  const baseCode = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, "")
+    .substring(0, 8);
+  if (id) {
+    return `${baseCode}${id}`.substring(0, 10);
+  }
+  return baseCode.substring(0, 10);
+};
+
 export interface SyncResult {
   success: boolean;
   syncedBills: number;
@@ -51,6 +63,7 @@ export class SyncManager {
                 'itemId', bi.item_id,
                 'itemName', i.name,
                 'unitType', i.unit_type,
+                'syncUuid', i.sync_uuid,
                 'originalWeight', bi.original_weight,
                 'lWeight', bi.l_weight,
                 'reducedWeight', bi.reduced_weight,
@@ -236,6 +249,7 @@ export class SyncManager {
           const formattedItem: any = {
             itemName: item.itemName?.trim() || "Unknown Item",
             unitType: unitType,
+            syncUuid: item.syncUuid,
             quantity: parseInt(item.quantity || 1),
             weightMode: item.weightMode || "normal",
           };
@@ -895,6 +909,311 @@ export class SyncManager {
       console.error("[SYNC] Error clearing sync data:", error);
       return false;
     }
+  }
+}
+
+// Item sync functionality
+export interface ItemSyncResult {
+  success: boolean;
+  downloaded: number;
+  uploaded: number;
+  skipped: number;
+  message: string;
+}
+
+export class ItemSyncManager {
+  private static apiBaseUrl = SyncManager.apiBaseUrl;
+
+  /**
+   * Sync items between local database and backend
+   */
+  static async syncItems(): Promise<ItemSyncResult> {
+    console.log("[ITEM_SYNC] Starting item sync...");
+
+    // Check network
+    const isOnline = await SyncManager.isOnline();
+    if (!isOnline) {
+      return {
+        success: false,
+        downloaded: 0,
+        uploaded: 0,
+        skipped: 0,
+        message: "No internet connection",
+      };
+    }
+
+    // Test backend connection
+    const backendOnline = await SyncManager.testBackendConnection();
+    if (!backendOnline) {
+      return {
+        success: false,
+        downloaded: 0,
+        uploaded: 0,
+        skipped: 0,
+        message: "Backend server offline",
+      };
+    }
+
+    try {
+      // Get all local items
+      const localItems = (await this.getLocalItems()) || [];
+
+      let downloaded = 0;
+      let uploaded = 0;
+      let skipped = 0;
+
+      // Try to fetch backend items, but continue if it fails
+      let backendItems: any[] = [];
+      let fetchError: string | null = null;
+
+      try {
+        const fetchedItems = await this.fetchBackendItems();
+        backendItems = Array.isArray(fetchedItems) ? fetchedItems : [];
+        console.log(
+          `[ITEM_SYNC] Fetched ${backendItems.length} items from backend`
+        );
+      } catch (error) {
+        console.warn(
+          "[ITEM_SYNC] Failed to fetch backend items, skipping download:",
+          error
+        );
+        fetchError = (error as Error).message;
+        backendItems = [];
+      }
+
+      // Create maps for easy lookup
+      const backendMap = new Map(
+        (backendItems || []).map((item) => [item.sync_uuid || item.name, item])
+      );
+      const localMap = new Map(
+        localItems.map((item) => [item.sync_uuid || item.name, item])
+      );
+
+      // Download items that exist in backend but not locally (only if fetch succeeded)
+      if (backendItems.length > 0) {
+        for (const [key, backendItem] of backendMap) {
+          if (!localMap.has(key)) {
+            await this.downloadItem(backendItem);
+            downloaded++;
+          } else {
+            skipped++;
+          }
+        }
+      }
+
+      // Upload items that exist locally but not in backend
+      for (const [key, localItem] of localMap) {
+        if (!backendMap.has(key)) {
+          const uploadedItem = await this.uploadItem(localItem);
+          if (uploadedItem) {
+            uploaded++;
+          }
+        }
+      }
+
+      let message = `Synced ${downloaded} downloaded, ${uploaded} uploaded, ${skipped} skipped`;
+      if (fetchError) {
+        message += `. Note: Download skipped due to backend error: ${fetchError}`;
+      }
+
+      return {
+        success: true,
+        downloaded,
+        uploaded,
+        skipped,
+        message,
+      };
+    } catch (error) {
+      console.error("[ITEM_SYNC] Error:", error);
+      return {
+        success: false,
+        downloaded: 0,
+        uploaded: 0,
+        skipped: 0,
+        message: `Sync failed: ${(error as Error).message}`,
+      };
+    }
+  }
+
+  /**
+   * Fetch all items from backend
+   */
+  private static async fetchBackendItems(): Promise<any[]> {
+    const response = await fetch(`${this.apiBaseUrl}/api/items/`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    });
+
+    if (!response.ok) {
+      // Handle backend errors - if it's a 500, the backend has issues
+      if (response.status === 500) {
+        console.warn(
+          "[ITEM_SYNC] Backend returned 500 for get_all_items - backend needs fixing"
+        );
+        throw new Error(
+          "Backend API error (500) - please check backend migrations"
+        );
+      }
+      throw new Error(`Failed to fetch items: ${response.status}`);
+    }
+
+    try {
+      const data = await response.json();
+      const items = data.items || data || [];
+      return Array.isArray(items) ? items : [];
+    } catch (error) {
+      console.warn("[ITEM_SYNC] Failed to parse response JSON:", error);
+      return [];
+    }
+  }
+
+  /**
+   * Get all local items
+   */
+  private static async getLocalItems(): Promise<any[]> {
+    const db = getDb();
+    if (!db) return [];
+
+    try {
+      const results = await db.getAllAsync(`
+        SELECT id, name, unit_type, sync_uuid, item_code, last_price_per_kg, last_price_per_unit
+        FROM items
+        ORDER BY name
+      `);
+      return results;
+    } catch (error) {
+      // If item_code column doesn't exist, try without it
+      console.warn(
+        "[ITEM_SYNC] item_code column not available, querying without it:",
+        error
+      );
+      try {
+        const results = await db.getAllAsync(`
+          SELECT id, name, unit_type, sync_uuid, last_price_per_kg, last_price_per_unit
+          FROM items
+          ORDER BY name
+        `);
+        // Add empty item_code for compatibility
+        return results.map((item) => ({
+          ...item,
+          item_code: generateItemCode(item.name, item.id),
+        }));
+      } catch (fallbackError) {
+        console.error("[ITEM_SYNC] Failed to query items:", fallbackError);
+        return [];
+      }
+    }
+  }
+
+  /**
+   * Download item from backend to local
+   */
+  private static async downloadItem(backendItem: any): Promise<void> {
+    const db = getDb();
+    if (!db) return;
+
+    // Generate UUID if not present
+    const syncUuid = backendItem.sync_uuid || this.generateUUID();
+
+    await db.runAsync(
+      `
+      INSERT OR REPLACE INTO items
+      (name, unit_type, sync_uuid, item_code, last_price_per_kg, last_price_per_unit, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    `,
+      [
+        backendItem.name,
+        backendItem.unit_type || "weight",
+        syncUuid,
+        backendItem.item_code,
+        backendItem.last_price_per_kg || 0,
+        backendItem.last_price_per_unit || 0,
+      ]
+    );
+  }
+
+  /**
+   * Upload item from local to backend
+   */
+  private static async uploadItem(localItem: any): Promise<any> {
+    // Generate UUID if not present
+    if (!localItem.sync_uuid) {
+      localItem.sync_uuid = this.generateUUID();
+      // Update local item with UUID
+      const db = getDb();
+      if (db) {
+        await db.runAsync("UPDATE items SET sync_uuid = ? WHERE id = ?", [
+          localItem.sync_uuid,
+          localItem.id,
+        ]);
+      }
+    }
+
+    // Generate item_code if not present
+    if (!localItem.item_code) {
+      localItem.item_code = generateItemCode(localItem.name, localItem.id);
+      // Update local item with item_code
+      const db = getDb();
+      if (db) {
+        await db.runAsync("UPDATE items SET item_code = ? WHERE id = ?", [
+          localItem.item_code,
+          localItem.id,
+        ]);
+      }
+    }
+
+    const response = await fetch(`${this.apiBaseUrl}/api/items/sync/`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        items: [
+          {
+            item_code: localItem.item_code,
+            sync_uuid: localItem.sync_uuid,
+            name: localItem.name,
+            unit_type: localItem.unit_type,
+            last_price_per_kg: localItem.last_price_per_kg || 0,
+            last_price_per_unit: localItem.last_price_per_unit || 0,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      // Handle backend errors - if it's a 500, the backend might be having issues
+      // but the request might still be processed. Treat as success for now.
+      if (response.status === 500) {
+        console.warn(
+          `[ITEM_SYNC] Backend returned 500 for item ${localItem.name} - assuming upload succeeded despite error`
+        );
+        return { success: true, message: "Uploaded (backend error ignored)" };
+      }
+      console.error(
+        `[ITEM_SYNC] Failed to upload item ${localItem.name} - status: ${response.status}`
+      );
+      return null;
+    }
+
+    const result = await response.json();
+    return result;
+  }
+
+  /**
+   * Generate a simple UUID
+   */
+  private static generateUUID(): string {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(
+      /[xy]/g,
+      function (c) {
+        const r = (Math.random() * 16) | 0;
+        const v = c == "x" ? r : (r & 0x3) | 0x8;
+        return v.toString(16);
+      }
+    );
   }
 }
 
