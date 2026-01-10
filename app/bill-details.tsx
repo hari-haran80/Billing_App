@@ -5,13 +5,13 @@ import { router, useLocalSearchParams } from "expo-router";
 import * as Sharing from "expo-sharing";
 import { useEffect, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  ScrollView,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    ScrollView,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
@@ -304,9 +304,12 @@ export default function BillDetailsScreen() {
         </View>
 
         <View style={styles.actionButtons}>
-          <TouchableOpacity style={styles.actionButton} onPress={handleShowPDF}>
-            <Icon name="visibility" size={24} color="#4a6da7" />
-            <Text style={styles.actionButtonText}>View PDF</Text>
+          <TouchableOpacity 
+            style={styles.actionButton} 
+            onPress={() => router.push(`/edit-bill?billId=${bill.id}`)}
+          >
+            <Icon name="edit" size={24} color="#4a6da7" />
+            <Text style={styles.actionButtonText}>Edit Bill</Text>
           </TouchableOpacity>
 
           <TouchableOpacity

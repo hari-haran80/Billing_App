@@ -40,8 +40,7 @@ export class PDFGenerator {
 
     const tamilDate = date.toLocaleDateString("ta-IN");
 
-    // Group items
-    const weightItems = bill.items.filter((i) => i.unitType === "weight");
+const weightItems = bill.items.filter((i) => i.unitType === "weight");
     const bottleItems = bill.items.filter((i) => i.unitType === "count");
 
     // Subtotals
@@ -238,14 +237,20 @@ ${
 <tbody>
 ${weightItems
   .map(
-    (item) => `
+    (item) => {
+      // Logic to determine which weight to show
+      // Priority: weight (generic) -> lWeight (if > 0) -> finalWeight
+      // And explicit 3 decimal places
+      const displayWeight = (item.weight || (item.lWeight && item.lWeight > 0 ? item.lWeight : item.finalWeight) || 0);
+      return `
 <tr>
   <td class="col-item-w item-name">${item.itemName}</td>
   <td class="col-uprice">₹${item.pricePerKg?.toFixed(2) || "0.00"}</td>
-  <td class="col-weight">${item.lWeight?.toFixed(2) || "0.00"}</td>
+  <td class="col-weight">${displayWeight.toFixed(3)}</td>
   <td class="col-total-w">₹${item.amount.toFixed(2)}</td>
 </tr>
-`
+`;
+    }
   )
   .join("")}
 <tr class="total-row">

@@ -1,20 +1,23 @@
 // Update the HistoryScreen component in history.tsx
+import { useTheme } from "@/constants/ThemeContext";
 import * as Print from "expo-print";
 import { useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
-  ActivityIndicator,
-  Alert,
-  FlatList,
-  RefreshControl,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
+    ActivityIndicator,
+    Alert,
+    FlatList,
+    RefreshControl,
+    StyleSheet,
+    Text,
+    TouchableOpacity,
+    View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
+import { EditHistoryModal } from "../../components/bill/EditHistoryModal";
+import { ScrollToTop } from "../../components/common/ScrollToTop";
 import { getAllBills, getBillDetails, getDb } from "../../lib/database";
 import { PDFGenerator } from "../../lib/pdfGenerator";
 
@@ -41,6 +44,7 @@ interface Bill {
   date?: string;
   sync_uuid?: string;
   is_synced?: boolean;
+  is_edited?: boolean;
   items: BillItem[];
   item_count?: number;
   items_list?: string;
@@ -67,6 +71,7 @@ const getWeightValue = (item: BillItem): number => {
 
 export default function HistoryScreen() {
   const router = useRouter();
+  const { colors } = useTheme();
   const [bills, setBills] = useState<Bill[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -98,8 +103,9 @@ export default function HistoryScreen() {
       // Ensure is_synced property exists on each bill
       const processedBills = (billsData || []).map((bill: any) => ({
         ...bill,
-        // Determine if bill is synced based on sync_uuid or other logic
-        is_synced: !!bill.sync_uuid,
+        // Determine if bill is synced based on is_synced flag from DB (0 or 1)
+        is_synced: !!bill.is_synced,
+        is_edited: !!bill.is_edited,
       }));
       setBills(processedBills);
       setLoading(false);
@@ -296,6 +302,34 @@ export default function HistoryScreen() {
     );
   };
 
+  // Scroll & Edit History logic
+  const [showScrollTop, setShowScrollTop] = useState(false);
+  const [showEditHistory, setShowEditHistory] = useState(false);
+  const [selectedBillId, setSelectedBillId] = useState<number | null>(null);
+  const scrollViewRef = useRef<FlatList>(null);
+
+  const handleScroll = (event: any) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    setShowScrollTop(offsetY > 200);
+  };
+
+  const scrollToTop = () => {
+    scrollViewRef.current?.scrollToOffset({ offset: 0, animated: true });
+  };
+
+  const handleShowHistory = (billId: number) => {
+    setSelectedBillId(billId);
+    setShowEditHistory(true);
+  };
+
+  if (loading && !refreshing) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
   const renderBillItem = ({ item }: { item: Bill }) => (
     <View style={styles.billCard}>
       <TouchableOpacity
@@ -304,7 +338,14 @@ export default function HistoryScreen() {
       >
         <View style={styles.billHeader}>
           <View>
-            <Text style={styles.billCustomer}>{item.customer_name || "Walk-in Customer"}</Text>
+            <View style={{flexDirection: 'row', alignItems: 'center'}}>
+                <Text style={styles.billCustomer}>{item.customer_name || "Walk-in Customer"}</Text>
+                {!!item.is_edited && (
+                    <TouchableOpacity onPress={() => handleShowHistory(item.id)} style={{marginLeft: 8}}>
+                        <Icon name="history" size={20} color={colors.warning} />
+                    </TouchableOpacity>
+                )}
+            </View>
             <Text style={styles.billNumber}>Bill: {item.bill_number || `BILL-${item.id}`}</Text>
           </View>
 
@@ -352,10 +393,10 @@ export default function HistoryScreen() {
       <View style={styles.actionButtons}>
         <TouchableOpacity
           style={styles.actionButton}
-          onPress={() => handleShowPDF(item.id)}
+          onPress={() => router.push(`/edit-bill?billId=${item.id}`)}
         >
-          <Icon name="visibility" size={20} color="#4a6da7" />
-          <Text style={styles.actionButtonText}>View</Text>
+          <Icon name="edit" size={20} color="#4a6da7" />
+          <Text style={styles.actionButtonText}>Edit</Text>
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -386,15 +427,6 @@ export default function HistoryScreen() {
       </View>
     </View>
   );
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#4a6da7" />
-        <Text style={styles.loadingText}>Loading bills...</Text>
-      </View>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -428,11 +460,14 @@ export default function HistoryScreen() {
 
       {/* Bills List with Pagination */}
       <FlatList
+        ref={scrollViewRef}
         data={bills.slice(0, page * pageSize)}
         renderItem={renderBillItem}
         keyExtractor={(item) => item.id.toString()}
         contentContainerStyle={styles.listContent}
         showsVerticalScrollIndicator={false}
+        onScroll={handleScroll}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -454,9 +489,17 @@ export default function HistoryScreen() {
           </View>
         }
       />
+      <ScrollToTop visible={showScrollTop} onPress={scrollToTop} />
+      <EditHistoryModal 
+        visible={showEditHistory} 
+        onClose={() => setShowEditHistory(false)} 
+        billId={selectedBillId}
+      />
     </SafeAreaView>
   );
 }
+
+// ... styles ...
 
 const styles = StyleSheet.create({
   container: {

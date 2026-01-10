@@ -1,29 +1,31 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import NetInfo from "@react-native-community/netinfo";
-import React, { useEffect, useState } from "react";
+import { useFocusEffect } from "expo-router";
+import React, { useCallback, useEffect, useState } from "react";
 import {
-    ActivityIndicator,
-    Alert,
-    Dimensions,
-    KeyboardAvoidingView,
-    Modal,
-    Platform,
-    ScrollView,
-    StatusBar,
-    StyleSheet,
-    Text,
-    TextInput,
-    TouchableOpacity,
-    View,
+  ActivityIndicator,
+  Alert,
+  Dimensions,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import Icon from "react-native-vector-icons/MaterialIcons";
 import { getDb } from "../../lib/database";
 import {
-    SyncManager,
-    SyncResult,
-    getApiBaseUrl,
-    setApiBaseUrl,
+  SyncManager,
+  SyncResult,
+  getApiBaseUrl,
+  setApiBaseUrl,
 } from "../../lib/syncManager";
 
 const { width } = Dimensions.get("window");
@@ -61,6 +63,26 @@ export default function SyncScreen() {
   const [isEditingUrl, setIsEditingUrl] = useState(false);
   const [tempBackendUrl, setTempBackendUrl] = useState("");
   const [isUrlTestLoading, setIsUrlTestLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Auto-refresh when screen comes into focus
+  useFocusEffect(
+    useCallback(() => {
+      loadUnsyncedCount();
+      checkNetworkStatus();
+      checkBackendStatus();
+    }, [])
+  );
+
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([
+      loadUnsyncedCount(),
+      checkNetworkStatus(),
+      checkBackendStatus(),
+    ]);
+    setRefreshing(false);
+  }, []);
 
   useEffect(() => {
     loadUnsyncedCount();
@@ -485,6 +507,9 @@ export default function SyncScreen() {
         style={styles.scrollView}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.scrollContent}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={["#3b82f6"]} />
+        }
       >
         {/* Header Section */}
         <View style={styles.header}>
@@ -645,30 +670,6 @@ export default function SyncScreen() {
           )}
         </View>
 
-        {/* Quick Actions */}
-        <View style={styles.actionsSection}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.actionButtons}>
-            <TouchableOpacity
-              onPress={handleTestSync}
-              style={styles.testSyncButton}
-              activeOpacity={0.9}
-            >
-              <Icon name="send" size={20} color="white" />
-              <Text style={styles.actionButtonText}>Test Sync</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={() => setShowAdvanced(!showAdvanced)}
-              style={styles.advancedButton}
-              activeOpacity={0.9}
-            >
-              <Icon name="settings" size={20} color="white" />
-              <Text style={styles.actionButtonText}>Advanced</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
         {/* Last Sync Result */}
         {syncResult && (
           <View style={styles.resultCard}>
@@ -706,6 +707,32 @@ export default function SyncScreen() {
             </View>
           </View>
         )}
+
+        {/* Quick Actions */}
+        <View style={styles.actionsSection}>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
+          <View style={styles.actionButtons}>
+            <TouchableOpacity
+              onPress={handleTestSync}
+              style={styles.testSyncButton}
+              activeOpacity={0.9}
+            >
+              <Icon name="send" size={20} color="white" />
+              <Text style={styles.actionButtonText}>Test Sync</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => setShowAdvanced(!showAdvanced)}
+              style={styles.advancedButton}
+              activeOpacity={0.9}
+            >
+              <Icon name="settings" size={20} color="white" />
+              <Text style={styles.actionButtonText}>Advanced</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+
 
         {/* Advanced Settings */}
         {showAdvanced && (

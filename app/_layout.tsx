@@ -1,9 +1,9 @@
 import { ThemeProvider } from "@/constants/ThemeContext";
-import { Slot } from "expo-router";
+import { Stack } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import { useEffect } from "react";
-import { initDatabase } from "../lib/database";
 import { ErrorBoundary } from "../components/ErrorBoundary";
+import { initDatabase } from "../lib/database";
 
 export default function RootLayout() {
   useEffect(() => {
@@ -19,9 +19,14 @@ export default function RootLayout() {
 
   return (
     <ThemeProvider>
-      <StatusBar style="auto" />
+      <StatusBar style="dark" backgroundColor="transparent" />
       <ErrorBoundary>
-        <Slot />
+        <Stack screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="bill-details" options={{ headerShown: false }} />
+          <Stack.Screen name="edit-bill" options={{ headerShown: false }} />
+          <Stack.Screen name="index" options={{ headerShown: false }} />
+        </Stack>
       </ErrorBoundary>
     </ThemeProvider>
   );

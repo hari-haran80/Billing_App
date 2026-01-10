@@ -18,7 +18,12 @@ export default function BackButton({
     if (onPress) {
       onPress();
     } else {
-      router.back();
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        // Fallback if no history (e.g. deep link) - mostly shouldn't happen with Stack
+        router.replace("/(tabs)/history");
+      }
     }
   };
 

@@ -282,7 +282,7 @@ const BillItemRow = React.memo(({
                       sum + (parseFloat(entry.weight) || 0),
                     0
                   )
-                  .toFixed(2)}{" "}
+                  .toFixed(3)}{" "}
                 kg
               </Text>
             </>

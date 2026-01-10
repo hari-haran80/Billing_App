@@ -165,6 +165,18 @@ export const initDatabase = async () => {
         FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE
       )
     `);
+
+    await db.execAsync(`
+      CREATE TABLE IF NOT EXISTS bill_edit_history (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        bill_id INTEGER NOT NULL,
+        previous_data TEXT NOT NULL, -- JSON string of items/totals before edit
+        new_data TEXT NOT NULL,      -- JSON string of items/totals after edit
+        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+        change_summary TEXT,
+        FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE
+      )
+    `);
     console.log("[DB] Tables created successfully");
 
     // Insert default weight reduction setting
@@ -759,6 +771,173 @@ export const saveBill = async (billData: any) => {
   return billId;
 };
 
+export const updateBill = async (billId: number, billData: any) => {
+  if (!db) throw new Error("Database not initialized");
+
+  const { customerName, customerPhone, items } = billData;
+  const weightReduction = await getWeightReduction();
+
+  // Fetch current bill state for history
+  const currentBill = await getBillDetails(billId);
+  const previousData = JSON.stringify(currentBill);
+
+  // Generate unique sync UUID for this bill if not exists (should exist)
+  // const syncUuid = generateUUID(); // Existing UUID is kept
+
+  // Compute total amount for the bill
+  let totalAmount = 0;
+  let hasChanges = false;
+  let changeSummary = "";
+
+  // Update bill header
+  await db.runAsync(
+    `UPDATE bills SET 
+      customer_name = ?, 
+      customer_phone = ?, 
+      is_synced = 0, 
+      sync_attempts = 0,
+      last_sync_attempt = NULL
+    WHERE id = ?`,
+    [
+      customerName || "Walk-in Customer",
+      customerPhone || "",
+      billId,
+    ]
+  );
+  
+  if (currentBill?.customer_name !== customerName || currentBill?.customer_phone !== customerPhone) {
+    hasChanges = true;
+    changeSummary += "Customer details updated. ";
+  }
+
+  // Delete existing bill items
+  await db.runAsync("DELETE FROM bill_items WHERE bill_id = ?", [billId]);
+
+  // Insert new bill items
+  for (const item of items) {
+    const itemDetails = await getItemById(item.itemId);
+
+    let originalWeight = Number(item.weight) || 0;
+    let quantity = item.quantity || 1;
+    let lWeight = 0;
+    let finalWeight = originalWeight;
+    let reducedWeight = 0;
+    let amount = 0;
+
+    if (itemDetails?.unit_type === "count") {
+      // Count-based items (bottles)
+      amount = Number((quantity * item.price).toFixed(2));
+      totalAmount += amount;
+
+      await db.runAsync(
+        `INSERT INTO bill_items 
+        (bill_id, item_id, original_weight, l_weight, final_weight, weight_mode, price_per_kg, price_per_unit, amount, reduced_weight, quantity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          billId,
+          item.itemId,
+          0,
+          0,
+          0,
+          "normal",
+          0,
+          item.price,
+          amount,
+          0,
+          quantity,
+        ]
+      );
+    } else {
+      // Weight-based items
+      if (item.weightMode === "L") {
+        // L mode: entered weight is L weight, calculate gross weight
+        lWeight = originalWeight;
+        originalWeight = lWeight / (1 - weightReduction);
+        finalWeight = originalWeight;
+        reducedWeight = originalWeight - lWeight;
+        amount = Number((lWeight * item.price).toFixed(2));
+      } else {
+        // Normal mode
+        lWeight = 0;
+        finalWeight = originalWeight;
+        reducedWeight = 0;
+        amount = Number((finalWeight * item.price).toFixed(2));
+      }
+
+      totalAmount += amount;
+
+      await db.runAsync(
+        `INSERT INTO bill_items 
+        (bill_id, item_id, original_weight, l_weight, final_weight, weight_mode, price_per_kg, price_per_unit, amount, reduced_weight, quantity)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          billId,
+          item.itemId,
+          Number(originalWeight.toFixed(3)),
+          Number(lWeight.toFixed(3)),
+          Number(finalWeight.toFixed(3)),
+          item.weightMode || "normal",
+          item.price,
+          0,
+          amount,
+          Number(reducedWeight.toFixed(3)),
+          1,
+        ]
+      );
+    }
+
+    // Update item last price (always update on edit too)
+    if (itemDetails?.unit_type === "count") {
+      await db.runAsync(
+        "UPDATE items SET last_price_per_unit = ? WHERE id = ?",
+        [item.price, item.itemId]
+      );
+    } else {
+      await db.runAsync("UPDATE items SET last_price_per_kg = ? WHERE id = ?", [
+        item.price,
+        item.itemId,
+      ]);
+    }
+  }
+
+  // Update total amount in bill header
+  await db.runAsync("UPDATE bills SET total_amount = ? WHERE id = ?", [
+    Number(totalAmount.toFixed(2)),
+    billId,
+  ]);
+
+  // Check for item changes roughly (comparing counts or total amount is heuristic, strict diff is expensive but better)
+  // For now, assume if updateBill is called, something might have changed, or rely on amount diff
+  if (Math.abs((currentBill?.total_amount || 0) - totalAmount) > 0.01) {
+    hasChanges = true;
+    changeSummary += `Total amount changed from ₹${currentBill?.total_amount} to ₹${totalAmount.toFixed(2)}. `;
+  } else {
+     changeSummary += "Items updated. ";
+  }
+
+  // Record history
+  const newData = JSON.stringify({
+    ...billData,
+    totalAmount,
+    items: items // Note: this is the input items structure, slightly different from DB structure but sufficient for history display
+  });
+
+  await db.runAsync(
+    `INSERT INTO bill_edit_history (bill_id, previous_data, new_data, change_summary) VALUES (?, ?, ?, ?)`,
+    [billId, previousData, newData, changeSummary]
+  );
+
+  return billId;
+};
+
+export const getBillEditHistory = async (billId: number) => {
+  if (!db) throw new Error("Database not initialized");
+  return await db.getAllAsync(
+    "SELECT * FROM bill_edit_history WHERE bill_id = ? ORDER BY created_at DESC",
+    [billId]
+  );
+};
+
 export const getItemById = async (id: number) => {
   if (!db) throw new Error("Database not initialized");
   return await db.getFirstAsync<ItemRow>("SELECT * FROM items WHERE id = ?", [
@@ -777,7 +956,8 @@ export const getAllBills = async () => {
           ELSE i.name || ' (' || CASE WHEN bi.weight_mode = 'L' THEN bi.l_weight ELSE bi.final_weight END || ' kg)'
         END
       ) as items_list,
-      COUNT(bi.id) as item_count
+      COUNT(bi.id) as item_count,
+      (SELECT COUNT(*) FROM bill_edit_history WHERE bill_id = b.id) > 0 as is_edited
     FROM bills b
     LEFT JOIN bill_items bi ON b.id = bi.bill_id
     LEFT JOIN items i ON bi.item_id = i.id
